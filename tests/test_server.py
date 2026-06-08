@@ -7,9 +7,11 @@ import pytest
 from context_eng.server import (
     _bundle_owners,
     _engines,
+    context_prompt,
     expand_context,
     get_context_bundle,
     get_engine,
+    prepare_context,
 )
 from context_eng.workspace_resolve import resolve_workspace
 
@@ -71,3 +73,29 @@ def test_get_context_bundle_tracks_workspace_for_expand(tmp_path):
 def test_expand_context_unknown_bundle():
     result = expand_context("nonexistent-bundle-id")
     assert "error" in result
+
+
+def test_prepare_context_one_shot(tmp_path):
+    repo = tmp_path / "fixture"
+    repo.mkdir()
+    (repo / "hello.py").write_text("def greet():\n    return 'hi'\n", encoding="utf-8")
+
+    result = prepare_context("explain greet in hello.py", workspace_root=str(repo))
+    assert "error" not in result
+    assert result["query"] == "explain greet in hello.py"
+    assert "analysis" in result
+    assert "bundle" in result
+    assert "formatted_context" in result
+    assert "hello.py" in result["formatted_context"]
+    assert result["bundle"]["bundle_id"]
+
+
+def test_context_prompt_returns_formatted_context(tmp_path):
+    repo = tmp_path / "fixture"
+    repo.mkdir()
+    (repo / "hello.py").write_text("def greet():\n    return 'hi'\n", encoding="utf-8")
+
+    text = context_prompt("explain greet in hello.py", workspace_root=str(repo))
+    assert "Context Engineering" in text
+    assert "hello.py" in text
+    assert "bundle id" in text.lower()

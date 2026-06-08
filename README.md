@@ -8,12 +8,27 @@ the information it actually needs.
 On the bundled benchmark it delivers a **median 63.6% token reduction with 100%
 anchor recall** (2,330 -> 762 median tokens). See `benchmarks/BASELINE.md`.
 
+## Quick start
+
+```powershell
+# one-time install (registers MCP globally + copies /context command)
+.\scripts\install.ps1
+```
+
+Restart Cursor, then in any project:
+
+```
+/context how does auth middleware validate tokens?
+```
+
+That single slash command analyzes your query, picks a token budget, fetches the
+right code slices, and injects them into the chat. No manual tool juggling.
+
 ## How it works
 
 ```
-query -> analyze_query -> intent + token budget
-      -> get_context_bundle -> ranked, budgeted chunks
-      -> expand_context (only if needed)
+/context <query>  ->  prepare_context  ->  budgeted chunks (ready to use)
+                                      ->  expand_context (only if needed)
 ```
 
 Instead of reading whole files, the server returns:
@@ -34,50 +49,50 @@ dropped even when budget remains.
 
 ## Setup
 
+### Option A — one command (recommended)
+
 ```powershell
-# from the project root
+.\scripts\install.ps1
+```
+
+This creates a venv, installs the package, registers the MCP server in
+`~/.cursor/mcp.json`, and copies the `/context` slash command to
+`~/.cursor/commands/`. Restart Cursor when it finishes.
+
+### Option B — manual
+
+```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
-(omit `[dev]` for a runtime-only install; `[dev]` adds pytest and tiktoken.)
-
-### Register with Cursor
-
-`.cursor/mcp.json` launches the server from the venv (no fixed workspace required):
+Add to `~/.cursor/mcp.json` (global, works for all projects):
 
 ```json
 {
   "mcpServers": {
     "context-eng": {
-      "command": "C:/Users/decke/context-eng-project/.venv/Scripts/python.exe",
+      "command": "C:/path/to/context-eng-project/.venv/Scripts/python.exe",
       "args": ["-m", "context_eng.server"]
     }
   }
 }
 ```
 
-For a **global** MCP config (same server for all projects), register once in
-Cursor user settings with the same command. The agent should pass
-`workspace_root` on each call (the open project path).
+Copy `.cursor/commands/context.md` to `~/.cursor/commands/` (or use the MCP
+prompt `/context` that the server registers automatically).
 
-Optional env fallback in MCP config:
-
-```json
-"env": { "CONTEXT_ENG_WORKSPACE": "C:/path/to/default/project" }
-```
-
-Restart Cursor (or reload MCP servers) after changes. Copy
-`.cursor/rules/context-eng-mcp.mdc` into other projects (or add as a user rule)
-so the agent uses the tools consistently.
+Optional: copy `.cursor/rules/context-eng-mcp.mdc` into other projects so the
+agent prefers `prepare_context` even without the slash command.
 
 ## Tools
 
-| Tool | Purpose |
-|------|---------|
-| `analyze_query(query, workspace_root?)` | Detect intent, extract files/symbols, recommend a token budget. |
-| `get_context_bundle(query, max_tokens?, intent?, workspace_root?)` | Return ranked, budgeted context chunks. |
-| `expand_context(bundle_id, focus?, extra_tokens?)` | Progressive disclosure when a bundle is insufficient. |
+| Tool / command | Purpose |
+|----------------|---------|
+| **`/context <query>`** (MCP prompt) | One-step UX: analyze + bundle, inject formatted context into chat. |
+| **`prepare_context(query, ...)`** | Same as `/context` but as an MCP tool (for agents). |
+| `expand_context(bundle_id, focus?, extra_tokens?)` | Add more context only when the initial bundle is insufficient. |
+| `analyze_query` / `get_context_bundle` | Lower-level tools (used internally; prefer `prepare_context`). |
 | `estimate_tokens(text? \| bundle_id?)` | Token count for text or a built bundle. |
 
 ### Workspace resolution (multi-project)
@@ -141,12 +156,11 @@ limits or widen `grep_context_lines` and re-run; reduction will fall.
 
 ## Manual eval checklist (in Cursor)
 
-- [ ] Server appears under MCP settings with 4 tools.
-- [ ] Run a debug query that names a file/symbol; confirm the bundle includes
-      that file and is far smaller than the full file.
+- [ ] Run `.\scripts\install.ps1`, restart Cursor.
+- [ ] MCP settings shows `context-eng` with `prepare_context` and `/context` prompt.
+- [ ] Type `/context explain how refresh tokens work` — context chunks appear
+      without manually calling tools.
 - [ ] Confirm `expand_context` adds chunks without duplicating the bundle.
-- [ ] With the rule enabled, confirm the agent calls `get_context_bundle`
-      instead of reading whole files for a multi-file task.
 
 ## Project layout
 

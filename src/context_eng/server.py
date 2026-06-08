@@ -17,6 +17,7 @@ from mcp.server.fastmcp import FastMCP
 
 from context_eng.config import load_config
 from context_eng.engine import ContextEngine
+from context_eng.formatting import format_context_message
 from context_eng.workspace_resolve import resolve_workspace
 
 mcp = FastMCP("context-eng")
@@ -42,6 +43,66 @@ def _engine_for_bundle(bundle_id: str) -> ContextEngine | None:
 
 def _track_bundle(engine: ContextEngine, bundle_id: str) -> None:
     _bundle_owners[bundle_id] = engine
+
+
+def _prepare_context(
+    query: str,
+    max_tokens: Optional[int] = None,
+    intent: Optional[str] = None,
+    workspace_root: Optional[str] = None,
+) -> dict:
+    """Analyze a query and return a ready-to-use context bundle."""
+    engine = get_engine(workspace_root)
+    analysis = engine.analyze_query(query)
+    bundle = engine.get_context_bundle(query, max_tokens, intent)
+    _track_bundle(engine, bundle.bundle_id)
+    workspace = str(engine.config.workspace_root)
+    return {
+        "query": query,
+        "workspace_root": workspace,
+        "analysis": analysis.model_dump(),
+        "bundle": bundle.model_dump(),
+        "formatted_context": format_context_message(query, analysis, bundle, workspace),
+    }
+
+
+@mcp.tool(
+    name="prepare_context",
+    annotations={
+        "title": "Prepare budgeted context (analyze + bundle in one call)",
+        "readOnlyHint": True,
+        "openWorldHint": False,
+    },
+)
+def prepare_context(
+    query: str,
+    max_tokens: Optional[int] = None,
+    intent: Optional[str] = None,
+    workspace_root: Optional[str] = None,
+) -> dict:
+    """One-call context preparation: analyze intent, fetch a budgeted bundle, return both.
+
+    Prefer this over calling ``analyze_query`` and ``get_context_bundle`` separately.
+    The response includes ``formatted_context`` — a ready-to-use markdown block with
+    all chunks. Use ``expand_context`` with the returned ``bundle.bundle_id`` only
+    if the initial pack is insufficient.
+    """
+    return _prepare_context(query, max_tokens, intent, workspace_root)
+
+
+@mcp.prompt(
+    name="context",
+    title="Context Engineering",
+    description="Fetch budgeted codebase context for your task. Usage: /context <question>",
+)
+def context_prompt(
+    query: str = "",
+    workspace_root: Optional[str] = None,
+) -> str:
+    """Slash command: analyze the query and inject a budgeted context pack."""
+    task = query.strip() or "Explore this codebase and summarize the main modules."
+    result = _prepare_context(task, workspace_root=workspace_root)
+    return result["formatted_context"]
 
 
 @mcp.tool(
