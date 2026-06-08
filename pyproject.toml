@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "context-eng"
+version = "0.1.0"
+description = "Context Engineering MCP server: query-matched, budgeted context packs to reduce LLM token usage."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "mcp>=1.2.0",
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+tokens = ["tiktoken>=0.5"]
+dev = [
+    "pytest>=7.4",
+    "tiktoken>=0.5",
+]
+
+[project.scripts]
+context-eng-mcp = "context_eng.server:main"
+context-eng-benchmark = "benchmarks.compare:main"
+
+[tool.setuptools.packages.find]
+where = ["src", "."]
+include = ["context_eng*", "benchmarks*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+context_eng = ["py.typed"]
+
+[tool.pytest.ini_options]
+markers = [
+    "benchmark: end-to-end token-reduction benchmark gate (may be slower)",
+]
+testpaths = ["tests"]
+pythonpath = ["src", "."]

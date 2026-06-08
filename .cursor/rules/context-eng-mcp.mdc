@@ -1,0 +1,50 @@
+---
+description: Use the Context Engineering MCP to gather budgeted context instead of reading whole files
+alwaysApply: true
+---
+
+# Context Engineering: prefer budgeted bundles over whole-file reads
+
+A local MCP server named `context-eng` provides query-matched, token-budgeted
+context. Using it reduces token usage substantially while preserving the
+information needed to do the task.
+
+## When to use it
+
+- Before reading multiple files, or any file longer than ~200 lines, call
+  `analyze_query` then `get_context_bundle` with the user's request.
+- Prefer the chunks returned by `get_context_bundle` over raw full-file reads.
+  The bundle already contains the relevant symbol slices, import neighbors, and
+  keyword snippets, with explicitly mentioned files always included.
+
+## How to use it
+
+1. `analyze_query(query, workspace_root?)` - see intent, signals, and budget.
+   Pass `workspace_root` as the open project path when using a global MCP config.
+2. `get_context_bundle(query, max_tokens?, workspace_root?)` - get ranked,
+   budgeted chunks. Each chunk lists its path, line range, and why it was
+   included. Responses include `workspace_root` confirming which repo was indexed.
+3. If the bundle is missing something, call `expand_context(bundle_id, focus?)`
+   instead of bulk-reading files. No `workspace_root` needed — the bundle is
+   tracked by id.
+4. `estimate_tokens(text? | bundle_id?)` - check token cost when unsure.
+
+## Workspace resolution
+
+The server indexes **whichever project you point it at**:
+
+1. `workspace_root` tool argument (recommended for global MCP setup)
+2. `CONTEXT_ENG_WORKSPACE` env var (optional fallback in MCP config)
+3. Process cwd (Cursor usually sets this to the open project root)
+
+When the MCP is registered once globally, pass the current project path on
+each `analyze_query` / `get_context_bundle` call. With per-project `.cursor/mcp.json`,
+cwd alone is often enough.
+
+## Rules
+
+- Do not paste excluded files back into context manually; expand the bundle
+  instead so the budget is respected.
+- For debugging tasks, the bundle preserves stack-trace anchors and the named
+  file; trust it rather than re-reading the whole module.
+- Treat the budget as a ceiling. If a small bundle is enough, do not expand.

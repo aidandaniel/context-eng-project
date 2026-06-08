@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "context-eng": {
+      "command": "C:/Users/decke/context-eng-project/.venv/Scripts/python.exe",
+      "args": ["-m", "context_eng.server"]
+    }
+  }
+}

@@ -1,0 +1,118 @@
+# Benchmark queries for the Context Engineering MCP.
+# Each entry models a realistic request against benchmarks/fixture_repo.
+#   expected_anchors    -> files that MUST appear (accuracy proxy)
+#   expected_supporting -> nice-to-have neighbors (informational recall)
+#   baseline_strategy   -> how the "before MCP" agent gathers context
+#   baseline_k          -> number of top grep files the baseline reads in full
+
+- id: debug_refresh_token
+  query: "Fix the TypeError in refreshToken after logout in src/auth/refresh.py"
+  intent: debug
+  expected_anchors: ["src/auth/refresh.py"]
+  expected_supporting: ["src/auth/middleware.py", "tests/test_auth.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: debug_verify_token
+  query: "verify_token returns None and triggers a RefreshError, debug src/auth/tokens.py"
+  intent: debug
+  expected_anchors: ["src/auth/tokens.py"]
+  expected_supporting: ["src/auth/refresh.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: debug_middleware_401
+  query: "auth_middleware returns 401 even with a valid bearer token in src/auth/middleware.py"
+  intent: debug
+  expected_anchors: ["src/auth/middleware.py"]
+  expected_supporting: ["src/auth/tokens.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: implement_token_kind
+  query: "Implement an id-token kind in make_token in src/auth/tokens.py"
+  intent: implement
+  expected_anchors: ["src/auth/tokens.py"]
+  expected_supporting: ["src/auth/refresh.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: implement_invoice_discount
+  query: "Implement a discount line item in create_invoice in src/billing/invoice.py"
+  intent: implement
+  expected_anchors: ["src/billing/invoice.py"]
+  expected_supporting: ["src/billing/payment.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: implement_user_search
+  query: "Add a search_users function to src/users/service.py"
+  intent: implement
+  expected_anchors: ["src/users/service.py"]
+  expected_supporting: ["src/users/models.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: explain_refresh_flow
+  query: "How does the token refresh flow work in src/auth/refresh.py?"
+  intent: explain
+  expected_anchors: ["src/auth/refresh.py"]
+  expected_supporting: ["src/auth/tokens.py", "src/auth/middleware.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: explain_dispatch
+  query: "Explain how requests are dispatched in src/api/server.py"
+  intent: explain
+  expected_anchors: ["src/api/server.py"]
+  expected_supporting: ["src/api/routes.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: explain_payment_charge
+  query: "What happens when charge is called in src/billing/payment.py?"
+  intent: explain
+  expected_anchors: ["src/billing/payment.py"]
+  expected_supporting: ["src/billing/invoice.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: refactor_rename_refresh
+  query: "Refactor and rename refreshToken in src/auth/refresh.py to refresh_access_token"
+  intent: refactor
+  expected_anchors: ["src/auth/refresh.py"]
+  expected_supporting: ["src/auth/middleware.py", "src/auth/__init__.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: refactor_extract_signing
+  query: "Extract the signing logic in src/auth/tokens.py into a helper function"
+  intent: refactor
+  expected_anchors: ["src/auth/tokens.py"]
+  expected_supporting: ["src/auth/refresh.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: refactor_user_store
+  query: "Refactor the in-memory user store in src/users/service.py"
+  intent: refactor
+  expected_anchors: ["src/users/service.py"]
+  expected_supporting: ["src/users/models.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: review_token_security
+  query: "Review src/auth/tokens.py for security vulnerabilities in token signing"
+  intent: review
+  expected_anchors: ["src/auth/tokens.py"]
+  expected_supporting: ["src/auth/refresh.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: review_routes_pr
+  query: "Review the PR adding routes in src/api/routes.py for correctness"
+  intent: review
+  expected_anchors: ["src/api/routes.py"]
+  expected_supporting: ["src/api/server.py"]
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5

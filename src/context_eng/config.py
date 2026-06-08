@@ -1,0 +1,98 @@
+"""Configuration for the Context Engineering MCP server.
+
+Values can be overridden by a `context-eng.toml` file at the workspace root.
+"""
+
+from __future__ import annotations
+
+import tomllib
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+
+from context_eng.workspace_resolve import resolve_workspace
+
+DEFAULT_IGNORE_GLOBS: tuple[str, ...] = (
+    ".git",
+    "node_modules",
+    "dist",
+    "build",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".context-eng",
+)
+
+# Intent -> (recommended, min, max) token budgets.
+DEFAULT_INTENT_BUDGETS: dict[str, tuple[int, int, int]] = {
+    "debug": (6000, 3000, 9000),
+    "implement": (8000, 4000, 12000),
+    "explain": (4000, 2000, 6000),
+    "refactor": (10000, 5000, 15000),
+    "review": (5000, 2500, 8000),
+}
+
+
+@dataclass(frozen=True)
+class Config:
+    workspace_root: Path
+    ignore_globs: tuple[str, ...] = DEFAULT_IGNORE_GLOBS
+    default_max_tokens: int = 8000
+    intent_budgets: dict[str, tuple[int, int, int]] = field(
+        default_factory=lambda: dict(DEFAULT_INTENT_BUDGETS)
+    )
+    grep_context_lines: int = 8
+    max_grep_candidates: int = 50
+    # Optional (non-anchor) chunks below this normalized score are dropped even
+    # if budget remains -- the budget is a ceiling, not a fill target.
+    min_chunk_score: float = 0.15
+    # Hard cap on optional chunks so a broad query cannot pad the bundle.
+    max_optional_chunks: int = 4
+    events_path: Path | None = None
+
+    @property
+    def resolved_events_path(self) -> Path:
+        if self.events_path is not None:
+            return self.events_path
+        return self.workspace_root / ".context-eng" / "events.jsonl"
+
+
+def load_config(workspace_root: str | None = None) -> Config:
+    """Build a Config, layering optional `context-eng.toml` over defaults."""
+
+    root = resolve_workspace(workspace_root)
+    cfg = Config(workspace_root=root)
+
+    toml_path = root / "context-eng.toml"
+    if not toml_path.is_file():
+        return cfg
+
+    try:
+        with toml_path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError):
+        return cfg
+
+    section = data.get("context_eng", data)
+    overrides: dict[str, object] = {}
+
+    if "ignore_globs" in section:
+        overrides["ignore_globs"] = tuple(section["ignore_globs"])
+    if "default_max_tokens" in section:
+        overrides["default_max_tokens"] = int(section["default_max_tokens"])
+    if "grep_context_lines" in section:
+        overrides["grep_context_lines"] = int(section["grep_context_lines"])
+    if "max_grep_candidates" in section:
+        overrides["max_grep_candidates"] = int(section["max_grep_candidates"])
+    if "min_chunk_score" in section:
+        overrides["min_chunk_score"] = float(section["min_chunk_score"])
+    if "max_optional_chunks" in section:
+        overrides["max_optional_chunks"] = int(section["max_optional_chunks"])
+    if "intent_budgets" in section:
+        budgets = dict(DEFAULT_INTENT_BUDGETS)
+        for intent, vals in section["intent_budgets"].items():
+            budgets[intent] = (int(vals[0]), int(vals[1]), int(vals[2]))
+        overrides["intent_budgets"] = budgets
+
+    return replace(cfg, **overrides)
