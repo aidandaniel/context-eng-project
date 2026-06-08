@@ -63,7 +63,8 @@ This creates a venv, installs the package, registers the MCP server in
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+source .venv/bin/activate  # on Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
 ```
 
 Add to `~/.cursor/mcp.json` (global, works for all projects):
@@ -101,7 +102,7 @@ agent prefers `prepare_context` even without the slash command.
 |----------|--------|
 | 1 | `workspace_root` argument on the tool call |
 | 2 | `CONTEXT_ENG_WORKSPACE` env var in MCP config |
-| 3 | Process cwd (Cursor usually sets this to the open project) |
+| 3 | Process cwd (typically set to the open project) |
 
 Tool responses include `workspace_root` so you can confirm which repo was indexed.
 
@@ -128,10 +129,11 @@ refactor 10000, review 5000.
 
 ## Tests
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest                 # everything (incl. benchmark gate)
-.\.venv\Scripts\python.exe -m pytest -m "not benchmark"   # fast unit tests only
-.\.venv\Scripts\python.exe -m pytest -m benchmark         # benchmark gate only
+```bash
+source .venv/bin/activate  # on Windows: .venv\Scripts\activate
+pytest                              # everything (incl. benchmark gate)
+pytest -m "not benchmark"           # fast unit tests only
+pytest -m benchmark                 # benchmark gate only
 ```
 
 ## Benchmark (before vs after)
@@ -139,8 +141,8 @@ refactor 10000, review 5000.
 Quantifies token impact by running the same queries two ways: a **baseline**
 that reads top grep-matched files in full, and the **MCP** budgeted bundle.
 
-```powershell
-.\.venv\Scripts\python.exe -m benchmarks.compare
+```bash
+python -m benchmarks.compare
 # or, after install: context-eng-benchmark
 ```
 
@@ -154,7 +156,7 @@ The pytest gate (`tests/test_benchmark.py`) enforces:
 To see the "before tuning" effect, raise `min_chunk_score`/`max_optional_chunks`
 limits or widen `grep_context_lines` and re-run; reduction will fall.
 
-## Manual eval checklist (in Cursor)
+## Manual eval checklist
 
 - [ ] Run `.\scripts\install.ps1`, restart Cursor.
 - [ ] MCP settings shows `context-eng` with `prepare_context` and `/context` prompt.
