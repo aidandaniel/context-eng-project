@@ -34,10 +34,11 @@ dropped even when budget remains.
 
 ## Setup
 
-```powershell
+```bash
 # from the project root
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+source .venv/bin/activate  # on Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
 ```
 
 (omit `[dev]` for a runtime-only install; `[dev]` adds pytest and tiktoken.)
@@ -50,7 +51,7 @@ python -m venv .venv
 {
   "mcpServers": {
     "context-eng": {
-      "command": "C:/Users/decke/context-eng-project/.venv/Scripts/python.exe",
+      "command": "/path/to/venv/bin/python",
       "args": ["-m", "context_eng.server"]
     }
   }
@@ -64,7 +65,7 @@ Cursor user settings with the same command. The agent should pass
 Optional env fallback in MCP config:
 
 ```json
-"env": { "CONTEXT_ENG_WORKSPACE": "C:/path/to/default/project" }
+"env": { "CONTEXT_ENG_WORKSPACE": "/path/to/default/project" }
 ```
 
 Restart Cursor (or reload MCP servers) after changes. Copy
@@ -86,7 +87,7 @@ so the agent uses the tools consistently.
 |----------|--------|
 | 1 | `workspace_root` argument on the tool call |
 | 2 | `CONTEXT_ENG_WORKSPACE` env var in MCP config |
-| 3 | Process cwd (Cursor usually sets this to the open project) |
+| 3 | Process cwd (typically set to the open project) |
 
 Tool responses include `workspace_root` so you can confirm which repo was indexed.
 
@@ -113,10 +114,11 @@ refactor 10000, review 5000.
 
 ## Tests
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest                 # everything (incl. benchmark gate)
-.\.venv\Scripts\python.exe -m pytest -m "not benchmark"   # fast unit tests only
-.\.venv\Scripts\python.exe -m pytest -m benchmark         # benchmark gate only
+```bash
+source .venv/bin/activate  # on Windows: .venv\Scripts\activate
+pytest                              # everything (incl. benchmark gate)
+pytest -m "not benchmark"           # fast unit tests only
+pytest -m benchmark                 # benchmark gate only
 ```
 
 ## Benchmark (before vs after)
@@ -124,8 +126,8 @@ refactor 10000, review 5000.
 Quantifies token impact by running the same queries two ways: a **baseline**
 that reads top grep-matched files in full, and the **MCP** budgeted bundle.
 
-```powershell
-.\.venv\Scripts\python.exe -m benchmarks.compare
+```bash
+python -m benchmarks.compare
 # or, after install: context-eng-benchmark
 ```
 
@@ -139,7 +141,7 @@ The pytest gate (`tests/test_benchmark.py`) enforces:
 To see the "before tuning" effect, raise `min_chunk_score`/`max_optional_chunks`
 limits or widen `grep_context_lines` and re-run; reduction will fall.
 
-## Manual eval checklist (in Cursor)
+## Manual eval checklist
 
 - [ ] Server appears under MCP settings with 4 tools.
 - [ ] Run a debug query that names a file/symbol; confirm the bundle includes
