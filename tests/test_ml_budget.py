@@ -10,6 +10,8 @@ from context_eng.ml.features import (
     extract_features,
     features_to_vector,
 )
+from context_eng.ml.budget_model import RandomForestBudgetModel
+from context_eng.models import BudgetInfo
 from context_eng.models import Intent
 
 FIXTURE = Path(__file__).resolve().parents[1] / "benchmarks" / "fixture_repo"
@@ -32,3 +34,27 @@ def test_feature_extraction():
     assert sum(intent_cols) == 1
     assert analysis.intent == Intent.DEBUG
     assert feats["intent_debug"] == 1
+
+
+class _FakeClassifier:
+    classes_ = [2000, 4000]
+
+    def predict_proba(self, rows):
+        assert len(rows) == 1
+        return [[0.51, 0.49]]
+
+
+def test_random_forest_budget_model_bumps_uncertain_low_prediction():
+    features = {name: 0 for name in FEATURE_NAMES}
+    model = RandomForestBudgetModel(
+        classifier=_FakeClassifier(),
+        feature_names=list(FEATURE_NAMES),
+        confidence_threshold=0.55,
+    )
+    fixed = BudgetInfo(recommended=4000, min=2000, max=6000)
+
+    prediction = model.predict(features, fixed)
+
+    assert prediction.raw_bucket == 2000
+    assert prediction.confidence == 0.51
+    assert prediction.budget == 3000

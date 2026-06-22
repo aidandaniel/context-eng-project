@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ChangeListManager">
+    <list default="true" id="0c6db771-4265-472c-9510-277d004600bc" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/../.cursor/mcp.json" beforeDir="false" afterPath="$PROJECT_DIR$/../.cursor/mcp.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/../pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../tests/test_ml_budget.py" beforeDir="false" afterPath="$PROJECT_DIR$/../tests/test_ml_budget.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 0
+}]]></component>
+  <component name="ProjectId" id="3FVIMjQDD9OkL1xZZtEbNBMOUYG" />
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "nodejs_package_manager_path": "npm",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-jdk-30f59d01ecdd-26cb7f24e5b0-intellij.indexing.shared.core-IU-253.29346.138" />
+        <option value="bundled-js-predefined-d6986cc7102b-9b0f141eb926-JavaScript-IU-253.29346.138" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="0c6db771-4265-472c-9510-277d004600bc" name="Changes" comment="" />
+      <created>1782153764244</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1782153764244</updated>
+      <workItem from="1782153765867" duration="5000" />
+    </task>
+    <servers />
+  </component>
+</project>
