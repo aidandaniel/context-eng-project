@@ -42,3 +42,25 @@ def test_format_context_message_includes_chunks():
     assert "auth.py" in text
     assert "test-bundle" in text
     assert "def login():" in text
+
+
+def test_format_context_message_includes_inferred_anchors():
+    analysis = QueryAnalysis(
+        intent=Intent.DEBUG,
+        confidence=0.8,
+        signals=QuerySignals(inferred_files=["src/auth/refresh.py"], query_tokens=9),
+        budget=BudgetInfo(recommended=6000, min=3000, max=9000),
+    )
+    bundle = ContextBundle(
+        intent=Intent.DEBUG,
+        budget_used=0,
+        budget_limit=6000,
+        chunks=[],
+        excluded_summary="",
+        bundle_id="test-bundle",
+    )
+
+    text = format_context_message("why does token refresh fail?", analysis, bundle, "/repo")
+
+    assert "Inferred anchors" in text
+    assert "src/auth/refresh.py" in text

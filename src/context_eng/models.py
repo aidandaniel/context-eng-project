@@ -23,6 +23,7 @@ class QuerySignals(BaseModel):
 
     has_stack_trace: bool = False
     mentioned_files: list[str] = Field(default_factory=list)
+    inferred_files: list[str] = Field(default_factory=list)
     mentioned_symbols: list[str] = Field(default_factory=list)
     has_error_token: bool = False
     query_tokens: int = 0

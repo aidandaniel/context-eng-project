@@ -90,6 +90,19 @@ def test_prepare_context_one_shot(tmp_path):
     assert result["bundle"]["bundle_id"]
 
 
+def test_prepare_context_returns_inferred_anchors(tmp_path):
+    repo = tmp_path / "fixture"
+    repo.mkdir()
+    (repo / "refresh.py").write_text(
+        "def refreshToken():\n    return 'ok'\n", encoding="utf-8"
+    )
+
+    result = prepare_context("Why does refreshToken fail?", workspace_root=str(repo))
+
+    assert "refresh.py" in result["analysis"]["signals"]["inferred_files"]
+    assert "Inferred anchors" in result["formatted_context"]
+
+
 def test_context_prompt_returns_formatted_context(tmp_path):
     repo = tmp_path / "fixture"
     repo.mkdir()

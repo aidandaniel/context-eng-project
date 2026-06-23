@@ -21,6 +21,7 @@ from context_eng.models import (
     TokenEstimate,
 )
 from context_eng.ranking.ranker import ChunkRanker, RankWeights
+from context_eng.retrieval.anchor_inference import infer_anchor_files
 from context_eng.retrieval.grep_retriever import GrepRetriever, extract_keywords
 from context_eng.retrieval.import_graph import local_imports
 from context_eng.retrieval.symbol_slice import find_symbol_span
@@ -93,6 +94,11 @@ class ContextEngine:
             return TokenEstimate(tokens=0, method=estimate("").method)
         total = sum(c.tokens for c in state.bundle.chunks)
         return TokenEstimate(tokens=total, method=estimate("").method)
+
+    def analysis_for_bundle(self, bundle_id: str) -> QueryAnalysis | None:
+        """Return the analysis used to build a stored bundle."""
+        state = self._bundles.get(bundle_id)
+        return state.analysis if state is not None else None
 
     def get_context_bundle(
         self,
@@ -170,13 +176,30 @@ class ContextEngine:
     # ------------------------------------------------------------------ #
 
     def _build_candidates(
-        self, query: str, analysis: QueryAnalysis, workspace: Path
+        self,
+        query: str,
+        analysis: QueryAnalysis,
+        workspace: Path,
     ) -> list[CandidateChunk]:
         candidates: list[CandidateChunk] = []
 
         anchor_files = self._resolve_mentioned_files(
             analysis.signals.mentioned_files, workspace
         )
+        grep = self.retriever.search(
+            query, workspace, self.config.max_grep_candidates
+        )
+
+        inferred_anchor_files: list[Path] = []
+        if not anchor_files and self.config.enable_anchor_inference:
+            inferred = infer_anchor_files(
+                query,
+                grep,
+                limit=self.config.max_inferred_anchor_files,
+                min_score=self.config.inferred_anchor_min_score,
+            )
+            analysis.signals.inferred_files = [item.path for item in inferred]
+            inferred_anchor_files = [workspace / item.path for item in inferred]
 
         # Tier 1+2: anchors and symbol slices.
         for path in anchor_files:
@@ -185,6 +208,8 @@ class ContextEngine:
                     path, analysis.signals.mentioned_symbols, workspace
                 )
             )
+        for path in inferred_anchor_files:
+            candidates.extend(self._inferred_anchor_candidates(path, workspace))
 
         # Tier 2 (global): symbol definitions anywhere in the workspace.
         if analysis.signals.mentioned_symbols:
@@ -195,16 +220,15 @@ class ContextEngine:
             )
 
         # Tier 3: 1-hop import neighbors of anchors.
-        candidates.extend(self._import_candidates(anchor_files, workspace))
+        candidates.extend(
+            self._import_candidates(anchor_files + inferred_anchor_files, workspace)
+        )
 
         # Tier 4: grep hits.
-        grep = self.retriever.search(
-            query, workspace, self.config.max_grep_candidates
-        )
         candidates.extend(grep)
 
         # Feature post-processing: path_mention + recency.
-        self._apply_features(candidates, anchor_files, workspace)
+        self._apply_features(candidates, anchor_files + inferred_anchor_files, workspace)
         return candidates
 
     def _resolve_mentioned_files(
@@ -264,6 +288,26 @@ class ContextEngine:
                 )
             )
         return out
+
+    def _inferred_anchor_candidates(
+        self, path: Path, workspace: Path
+    ) -> list[CandidateChunk]:
+        source = read_text(path)
+        if not source:
+            return []
+        rel = relpath(path, workspace)
+        lines = source.splitlines()
+        end = min(len(lines), _HEAD_LINES)
+        return [
+            CandidateChunk(
+                path=rel,
+                start_line=1,
+                end_line=max(1, end),
+                content="\n".join(lines[:end]),
+                tier="inferred_anchor",
+                path_mention=0.75,
+            )
+        ]
 
     def _symbol_candidates(
         self, symbols: list[str], workspace: Path, anchor_files: list[Path]
@@ -430,7 +474,11 @@ class ContextEngine:
         must_indices: set[int] = set()
         for sc in scored:
             cand = sc.candidate
-            is_must = cand.path_mention >= 1.0 or cand.tier in ("anchor", "symbol")
+            is_must = cand.path_mention >= 1.0 or cand.tier in (
+                "anchor",
+                "symbol",
+                "inferred_anchor",
+            )
             if is_must:
                 must_indices.add(len(kept))
                 kept.append(sc)
@@ -481,6 +529,7 @@ class ContextEngine:
                 "features": {
                     "has_stack_trace": analysis.signals.has_stack_trace,
                     "mentioned_files": len(analysis.signals.mentioned_files),
+                    "inferred_files": len(analysis.signals.inferred_files),
                     "grep_hits": grep_hits,
                 },
                 "success": None,

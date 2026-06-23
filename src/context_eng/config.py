@@ -44,6 +44,9 @@ class Config:
     )
     grep_context_lines: int = 8
     max_grep_candidates: int = 50
+    enable_anchor_inference: bool = True
+    max_inferred_anchor_files: int = 3
+    inferred_anchor_min_score: float = 1.0
     # Optional (non-anchor) chunks below this normalized score are dropped even
     # if budget remains -- the budget is a ceiling, not a fill target.
     min_chunk_score: float = 0.15
@@ -85,6 +88,12 @@ def load_config(workspace_root: str | None = None) -> Config:
         overrides["grep_context_lines"] = int(section["grep_context_lines"])
     if "max_grep_candidates" in section:
         overrides["max_grep_candidates"] = int(section["max_grep_candidates"])
+    if "enable_anchor_inference" in section:
+        overrides["enable_anchor_inference"] = bool(section["enable_anchor_inference"])
+    if "max_inferred_anchor_files" in section:
+        overrides["max_inferred_anchor_files"] = int(section["max_inferred_anchor_files"])
+    if "inferred_anchor_min_score" in section:
+        overrides["inferred_anchor_min_score"] = float(section["inferred_anchor_min_score"])
     if "min_chunk_score" in section:
         overrides["min_chunk_score"] = float(section["min_chunk_score"])
     if "max_optional_chunks" in section:

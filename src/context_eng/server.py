@@ -53,8 +53,8 @@ def _prepare_context(
 ) -> dict:
     """Analyze a query and return a ready-to-use context bundle."""
     engine = get_engine(workspace_root)
-    analysis = engine.analyze_query(query)
     bundle = engine.get_context_bundle(query, max_tokens, intent)
+    analysis = engine.analysis_for_bundle(bundle.bundle_id) or engine.analyze_query(query)
     _track_bundle(engine, bundle.bundle_id)
     workspace = str(engine.config.workspace_root)
     return {

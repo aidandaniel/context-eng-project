@@ -46,6 +46,8 @@ def _reason(c: CandidateChunk) -> str:
         parts.append("symbol slice")
     elif c.tier == "import":
         parts.append("import neighbor")
+    elif c.tier == "inferred_anchor":
+        parts.append("inferred anchor")
     elif c.tier == "skeleton":
         parts.append("project skeleton")
     if c.keyword_match > 0 and c.tier == "grep":

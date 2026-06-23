@@ -30,9 +30,18 @@ def format_context_message(
         "",
     ]
 
-    if analysis.signals.mentioned_files or analysis.signals.mentioned_symbols:
+    if (
+        analysis.signals.mentioned_files
+        or analysis.signals.inferred_files
+        or analysis.signals.mentioned_symbols
+    ):
         anchors = analysis.signals.mentioned_files + analysis.signals.mentioned_symbols
-        lines.append(f"**Anchors:** {', '.join(anchors)}")
+        if anchors:
+            lines.append(f"**Anchors:** {', '.join(anchors)}")
+        if analysis.signals.inferred_files:
+            lines.append(
+                f"**Inferred anchors:** {', '.join(analysis.signals.inferred_files)}"
+            )
         lines.append("")
 
     for i, chunk in enumerate[Chunk](bundle.chunks, start=1):

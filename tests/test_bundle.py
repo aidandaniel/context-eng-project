@@ -134,3 +134,11 @@ def test_expand_context_grows_bundle(sample_repo):
     expanded = engine.expand_context(bundle.bundle_id)
     assert expanded.expansions == 1
     assert expanded.budget_limit > bundle.budget_limit
+
+
+def test_bundle_infers_anchor_when_query_has_no_file(sample_repo):
+    cfg = Config(workspace_root=sample_repo)
+    engine = ContextEngine(config=cfg)
+    bundle = engine.get_context_bundle("Why does refreshToken fail after logout?")
+
+    assert "src/auth/refresh.py" in {c.path for c in bundle.chunks}
