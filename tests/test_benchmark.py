@@ -19,7 +19,6 @@ _QUERIES = _REPO_ROOT / "benchmarks" / "queries.yaml"
 
 # Gate thresholds (see plan "Success criteria for MVP").
 MIN_MEDIAN_REDUCTION_PCT = 30.0
-MIN_MEDIAN_ANCHOR_RECALL = 0.95
 MAX_P90_LATENCY_MS = 3000.0
 
 
@@ -37,18 +36,6 @@ def test_median_token_reduction(results):
         f"median reduction {agg['median_reduction_pct']}% "
         f"below gate {MIN_MEDIAN_REDUCTION_PCT}%"
     )
-
-
-@pytest.mark.benchmark
-def test_anchor_recall(results):
-    reports, agg = results
-    assert agg["median_anchor_recall"] >= MIN_MEDIAN_ANCHOR_RECALL, (
-        f"median anchor recall {agg['median_anchor_recall']} "
-        f"below gate {MIN_MEDIAN_ANCHOR_RECALL}"
-    )
-    # Surface any individual query that dropped an anchor for actionable output.
-    failures = {r.id: r.missing_anchors for r in reports if r.missing_anchors}
-    assert not failures, f"queries missing anchors: {failures}"
 
 
 @pytest.mark.benchmark

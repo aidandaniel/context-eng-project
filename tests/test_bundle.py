@@ -142,3 +142,19 @@ def test_bundle_infers_anchor_when_query_has_no_file(sample_repo):
     bundle = engine.get_context_bundle("Why does refreshToken fail after logout?")
 
     assert "src/auth/refresh.py" in {c.path for c in bundle.chunks}
+
+
+def test_bundle_always_runs_anchor_inference(sample_repo, monkeypatch):
+    cfg = Config(workspace_root=sample_repo)
+    engine = ContextEngine(config=cfg)
+    called = {"count": 0}
+
+    def fake_infer(*args, **kwargs):
+        called["count"] += 1
+        return []
+
+    monkeypatch.setattr("context_eng.engine.infer_anchor_files", fake_infer)
+
+    engine.get_context_bundle("Fix TypeError in refreshToken in src/auth/refresh.py")
+
+    assert called["count"] == 1

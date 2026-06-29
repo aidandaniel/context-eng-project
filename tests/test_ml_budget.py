@@ -10,11 +10,15 @@ from context_eng.ml.features import (
     extract_features,
     features_to_vector,
 )
-from context_eng.ml.budget_model import RandomForestBudgetModel
+from context_eng.ml.generate_labels import label_all
+from context_eng.ml.budget_model import BUDGET_BUCKETS, RandomForestBudgetModel
 from context_eng.models import BudgetInfo
 from context_eng.models import Intent
 
 FIXTURE = Path(__file__).resolve().parents[1] / "benchmarks" / "fixture_repo"
+TRAINING_QUERIES = (
+    Path(__file__).resolve().parents[1] / "ml" / "data" / "budget_training_queries.yaml"
+)
 
 
 def test_feature_extraction():
@@ -58,3 +62,18 @@ def test_random_forest_budget_model_bumps_uncertain_low_prediction():
     assert prediction.raw_bucket == 2000
     assert prediction.confidence == 0.51
     assert prediction.budget == 3000
+
+
+def test_training_corpus_reaches_multiple_budget_buckets():
+    rows = label_all(FIXTURE, TRAINING_QUERIES)
+    budgets = {row["y"] for row in rows}
+    high_budget_rows = [row for row in rows if row["y"] > 2000]
+    upper_buckets = {bucket for bucket in BUDGET_BUCKETS if bucket >= 5000}
+
+    assert any(budget > 2000 for budget in budgets)
+    assert upper_buckets.issubset(budgets)
+    assert len(high_budget_rows) >= 12
+    assert max(budgets) == 15000
+    assert len(budgets) >= 3
+    for row in rows:
+        assert row["expected_tokens"] > 0

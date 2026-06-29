@@ -7,7 +7,7 @@ name = "context-eng"
 version = "0.1.0"
 description = "Context Engineering MCP server: query-matched, budgeted context packs to reduce LLM token usage."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "mcp>=1.2.0",
@@ -27,10 +27,25 @@ viz = [
 ]
 dev = [
     "pytest>=7.4",
+    "mypy>=1.8",
     "tiktoken>=0.5",
     "joblib>=1.3",
     "scikit-learn>=1.3",
 ]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["context_eng", "benchmarks"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "context_eng.config",
+    "context_eng.ml.generate_labels",
+    "context_eng.retrieval.anchor_inference",
+    "context_eng.server",
+]
+disable_error_code = ["arg-type"]
 
 [project.scripts]
 context-eng-mcp = "context_eng.server:main"

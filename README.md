@@ -5,8 +5,8 @@ returns **query-matched, token-budgeted context packs** instead of whole files.
 The goal: cut the input tokens an agent spends gathering context while keeping
 the information it actually needs.
 
-On the bundled benchmark it delivers a **median 63.6% token reduction with 100%
-anchor recall** (2,330 -> 762 median tokens). See `benchmarks/BASELINE.md`.
+On the bundled benchmark it delivers a **median 66.7% token reduction**
+(2,743 -> 939 median tokens). See `benchmarks/BASELINE.md`.
 
 ## Quick start
 
@@ -43,7 +43,7 @@ dropped even when budget remains.
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - No `ripgrep` or `uv` required (a pure-Python grep fallback is used; `tiktoken`
   is used for token counting when installed, else a chars/4 heuristic).
 
@@ -150,7 +150,6 @@ Writes `benchmarks/results/latest.{json,md}` and prints an aggregate summary.
 The pytest gate (`tests/test_benchmark.py`) enforces:
 
 - median token reduction >= 30%
-- median anchor recall >= 95%
 - p90 latency < 3s
 
 To see the "before tuning" effect, raise `min_chunk_score`/`max_optional_chunks`

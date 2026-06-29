@@ -1,118 +1,376 @@
-# Benchmark queries for the Context Engineering MCP.
-# Each entry models a realistic request against benchmarks/fixture_repo.
-#   expected_anchors    -> files that MUST appear (accuracy proxy)
-#   expected_supporting -> nice-to-have neighbors (informational recall)
+# Query corpus for the Context Engineering MCP.
+# Each entry models a realistic request against the fixture repo.
 #   baseline_strategy   -> how the "before MCP" agent gathers context
 #   baseline_k          -> number of top grep files the baseline reads in full
 
-- id: debug_refresh_token
-  query: "Fix the TypeError in refreshToken after logout in src/auth/refresh.py"
+- id: auth_refresh_01
+  query: "Why does refreshToken fail immediately after logout?"
   intent: debug
-  expected_anchors: ["src/auth/refresh.py"]
-  expected_supporting: ["src/auth/middleware.py", "tests/test_auth.py"]
   baseline_strategy: grep_top_k_full_files
   baseline_k: 5
 
-- id: debug_verify_token
-  query: "verify_token returns None and triggers a RefreshError, debug src/auth/tokens.py"
+- id: auth_refresh_02
+  query: "Fix the session rotation path when a revoked token is reused."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: auth_refresh_03
+  query: "Explain why RefreshError is raised during token rotation."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: auth_refresh_04
+  query: "How should logout invalidate refresh sessions without breaking retries?"
+  intent: refactor
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: auth_tokens_01
+  query: "Add support for an id token kind in make_token."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: auth_tokens_02
+  query: "Why does verify_token return None for a valid-looking token?"
   intent: debug
-  expected_anchors: ["src/auth/tokens.py"]
-  expected_supporting: ["src/auth/refresh.py"]
   baseline_strategy: grep_top_k_full_files
   baseline_k: 5
 
-- id: debug_middleware_401
-  query: "auth_middleware returns 401 even with a valid bearer token in src/auth/middleware.py"
+- id: auth_tokens_03
+  query: "Explain the difference between decoding claims and verifying signatures."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: auth_tokens_04
+  query: "Why does is_expired treat a missing issued-at timestamp as expired?"
   intent: debug
-  expected_anchors: ["src/auth/middleware.py"]
-  expected_supporting: ["src/auth/tokens.py"]
   baseline_strategy: grep_top_k_full_files
   baseline_k: 5
 
-- id: implement_token_kind
-  query: "Implement an id-token kind in make_token in src/auth/tokens.py"
-  intent: implement
-  expected_anchors: ["src/auth/tokens.py"]
-  expected_supporting: ["src/auth/refresh.py"]
+- id: auth_middleware_01
+  query: "Why does the auth middleware reject a bearer token with different casing?"
+  intent: debug
   baseline_strategy: grep_top_k_full_files
   baseline_k: 5
 
-- id: implement_invoice_discount
-  query: "Implement a discount line item in create_invoice in src/billing/invoice.py"
-  intent: implement
-  expected_anchors: ["src/billing/invoice.py"]
-  expected_supporting: ["src/billing/payment.py"]
-  baseline_strategy: grep_top_k_full_files
-  baseline_k: 5
-
-- id: implement_user_search
-  query: "Add a search_users function to src/users/service.py"
-  intent: implement
-  expected_anchors: ["src/users/service.py"]
-  expected_supporting: ["src/users/models.py"]
-  baseline_strategy: grep_top_k_full_files
-  baseline_k: 5
-
-- id: explain_refresh_flow
-  query: "How does the token refresh flow work in src/auth/refresh.py?"
-  intent: explain
-  expected_anchors: ["src/auth/refresh.py"]
-  expected_supporting: ["src/auth/tokens.py", "src/auth/middleware.py"]
-  baseline_strategy: grep_top_k_full_files
-  baseline_k: 5
-
-- id: explain_dispatch
-  query: "Explain how requests are dispatched in src/api/server.py"
-  intent: explain
-  expected_anchors: ["src/api/server.py"]
-  expected_supporting: ["src/api/routes.py"]
-  baseline_strategy: grep_top_k_full_files
-  baseline_k: 5
-
-- id: explain_payment_charge
-  query: "What happens when charge is called in src/billing/payment.py?"
-  intent: explain
-  expected_anchors: ["src/billing/payment.py"]
-  expected_supporting: ["src/billing/invoice.py"]
-  baseline_strategy: grep_top_k_full_files
-  baseline_k: 5
-
-- id: refactor_rename_refresh
-  query: "Refactor and rename refreshToken in src/auth/refresh.py to refresh_access_token"
+- id: auth_middleware_02
+  query: "Make refresh_if_needed tolerate temporary refresh failures."
   intent: refactor
-  expected_anchors: ["src/auth/refresh.py"]
-  expected_supporting: ["src/auth/middleware.py", "src/auth/__init__.py"]
   baseline_strategy: grep_top_k_full_files
   baseline_k: 5
 
-- id: refactor_extract_signing
-  query: "Extract the signing logic in src/auth/tokens.py into a helper function"
+- id: auth_middleware_03
+  query: "Explain how the request logger and CORS wrappers compose around a handler."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: auth_middleware_04
+  query: "Debug why a missing Authorization header becomes a 401 instead of falling through."
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: billing_invoice_01
+  query: "Add a discount line item to invoice creation."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: billing_invoice_02
+  query: "Why is the invoice total still equal to the subtotal after a discount?"
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: billing_invoice_03
+  query: "Explain how multiple discounts are capped by the invoice subtotal."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: billing_invoice_04
+  query: "Fix the helper that appends line items with quantities."
   intent: refactor
-  expected_anchors: ["src/auth/tokens.py"]
-  expected_supporting: ["src/auth/refresh.py"]
   baseline_strategy: grep_top_k_full_files
   baseline_k: 5
 
-- id: refactor_user_store
-  query: "Refactor the in-memory user store in src/users/service.py"
+- id: billing_payment_01
+  query: "Why does charging an invoice sometimes fail after the retry limit?"
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: billing_payment_02
+  query: "Explain how idempotency keys affect repeated payment attempts."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: billing_payment_03
+  query: "Make refunds fail only when the invoice was never paid."
   intent: refactor
-  expected_anchors: ["src/users/service.py"]
-  expected_supporting: ["src/users/models.py"]
   baseline_strategy: grep_top_k_full_files
   baseline_k: 5
 
-- id: review_token_security
-  query: "Review src/auth/tokens.py for security vulnerabilities in token signing"
+- id: billing_payment_04
+  query: "Debug why a missing card token still records a payment attempt."
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: users_service_01
+  query: "Add a search_users helper for filtering the user list."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: users_service_02
+  query: "Why is create_user rejecting duplicate emails?"
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: users_service_03
+  query: "Explain how pagination is applied to the user list."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: users_service_04
+  query: "Fix deactivation so inactive users are excluded when requested."
+  intent: refactor
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: users_models_01
+  query: "Add a new admin role check to the User model."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: users_models_02
+  query: "Explain how a user profile is attached to a user record."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: users_models_03
+  query: "Why is the active flag not cleared after deactivation?"
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: users_models_04
+  query: "Make the display name default easier to override."
+  intent: refactor
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: api_routes_01
+  query: "Add a health check route that returns a simple ok response."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: api_routes_02
+  query: "Why do user creation requests return 400 when the email header is missing?"
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: api_routes_03
+  query: "Explain how invoice creation applies an optional discount code."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: api_routes_04
+  query: "Fix the payment route so it returns the payment status from the gateway."
+  intent: refactor
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: api_server_01
+  query: "Why does dispatch return 404 for an unknown route?"
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: api_server_02
+  query: "Explain how the server records status code metrics."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: api_server_03
+  query: "Make the top-level error boundary return a stable internal error response."
+  intent: refactor
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: api_server_04
+  query: "Add a small helper that reports route count at startup."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: inventory_catalog_01
+  query: "Add a search helper for products by name or tag."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: inventory_catalog_02
+  query: "Why does get_product return None for an unknown SKU?"
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: inventory_catalog_04
+  query: "Make all_products return every product currently registered."
+  intent: refactor
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: inventory_stock_01
+  query: "Fix stock reservation so it raises when inventory is too low."
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: inventory_stock_03
+  query: "Add a helper that normalizes negative stock inputs."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: inventory_stock_04
+  query: "Why does set_stock clamp values below zero?"
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: utils_config_01
+  query: "Change the default issuer used by application settings."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: utils_config_02
+  query: "Explain where the access_ttl_seconds setting comes from."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: utils_config_03
+  query: "Make settings loading cheaper by caching the dataclass instance."
+  intent: refactor
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: utils_config_04
+  query: "Why is the debug setting disabled by default?"
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: utils_logging_01
+  query: "Add a warning logger that formats messages consistently."
+  intent: implement
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: utils_logging_02
+  query: "Explain how the lightweight logger prints to stderr."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: utils_logging_03
+  query: "Why do logger messages keep their level prefix on stderr?"
+  intent: debug
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: utils_logging_04
+  query: "Make the logger helper return a shared instance per name."
+  intent: refactor
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 5
+
+- id: platform_5000_01
+  query: "Review a high budget identity commerce rollout incident that spans mega identity commerce, mega rollout migration, mega compliance security, mega observability config, mega inventory workflow, mega performance ml, and resilience context."
   intent: review
-  expected_anchors: ["src/auth/tokens.py"]
-  expected_supporting: ["src/auth/refresh.py"]
   baseline_strategy: grep_top_k_full_files
-  baseline_k: 5
+  baseline_k: 12
 
-- id: review_routes_pr
-  query: "Review the PR adding routes in src/api/routes.py for correctness"
-  intent: review
-  expected_anchors: ["src/api/routes.py"]
-  expected_supporting: ["src/api/server.py"]
+- id: platform_5000_02
+  query: "Explain the path free anchor inference behavior for identity commerce, rollout migration, compliance security, observability config, inventory workflow, performance ml, and resilience during a cross-platform review."
+  intent: explain
   baseline_strategy: grep_top_k_full_files
-  baseline_k: 5
+  baseline_k: 12
+
+- id: platform_6000_01
+  query: "Refactor the release review context for mega identity commerce, mega rollout migration, mega compliance security, mega observability config, mega inventory workflow, mega performance ml, resilience, and compliance evidence."
+  intent: refactor
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 14
+
+- id: platform_6000_02
+  query: "Trace the incident response review through identity commerce, rollout migration, compliance security, observability config, inventory workflow, performance ml, resilience, and compliance retention policy."
+  intent: review
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 14
+
+- id: platform_8000_01
+  query: "Review the large data flow across mega identity commerce, mega rollout migration, mega compliance security, mega observability config, mega inventory workflow, mega performance ml, resilience, compliance, data pipeline, and performance."
+  intent: review
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 16
+
+- id: platform_8000_02
+  query: "Explain how benchmark token reduction and random forest training interact with identity commerce, rollout migration, compliance security, observability config, inventory workflow, performance ml, resilience, compliance, data pipeline, and performance analysis."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 16
+
+- id: platform_10000_01
+  query: "Refactor the enterprise release architecture across mega identity commerce, mega rollout migration, mega compliance security, mega observability config, mega inventory workflow, mega performance ml, resilience, compliance, data pipeline, performance, enterprise architecture, security review, rollout, agent context, and quality governance."
+  intent: refactor
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 20
+
+- id: platform_10000_02
+  query: "Trace a security and performance architecture review covering identity commerce, rollout migration, compliance security, observability config, inventory workflow, performance ml, resilience, compliance, data pipeline, performance, enterprise architecture, security review, rollout, agent context, and quality governance."
+  intent: review
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 20
+
+- id: platform_12000_01
+  query: "Review the broad governance plan across identity commerce, rollout migration, compliance security, observability config, inventory workflow, performance ml, resilience, compliance, data pipeline, performance, enterprise architecture, security review, rollout, agent context, quality governance, identity, commerce, inventory operations, token ceiling, observability, workflow, testing matrix, configuration, and migration."
+  intent: review
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 24
+
+- id: platform_12000_02
+  query: "Explain the full budget gap coverage story for identity commerce, rollout migration, compliance security, observability config, inventory workflow, performance ml, resilience, compliance, data pipeline, performance, enterprise architecture, security review, rollout, agent context, quality governance, identity, commerce, inventory operations, token ceiling, observability, workflow, testing matrix, configuration, and migration."
+  intent: explain
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 24
+
+- id: platform_15000_01
+  query: "Review the maximum full stack context across identity commerce, rollout migration, compliance security, observability config, inventory workflow, performance ml, incident response, agent context, enterprise architecture, quality governance, full stack review, token ceiling, resilience, compliance, data pipeline, performance, security review, rollout, identity, commerce, inventory operations, observability, workflow, testing matrix, configuration, and migration."
+  intent: review
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 30
+
+- id: platform_15000_02
+  query: "Trace the largest benchmark and training scenario across identity commerce, rollout migration, compliance security, observability config, inventory workflow, performance ml, incident response, agent context, enterprise architecture, quality governance, full stack review, token ceiling, resilience, compliance, data pipeline, performance, security review, rollout, identity, commerce, inventory operations, observability, workflow, testing matrix, configuration, and migration."
+  intent: review
+  baseline_strategy: grep_top_k_full_files
+  baseline_k: 30

@@ -2,4 +2,4 @@
 name = "fixture-app"
 version = "0.0.1"
 description = "Sample app used by the Context Engineering MCP benchmark."
-requires-python = ">=3.10"
+requires-python = ">=3.11"

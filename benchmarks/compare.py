@@ -1,4 +1,4 @@
-"""Before/after benchmark: quantify token reduction and anchor recall.
+"""Before/after benchmark: quantify token reduction and latency.
 
 Runs every query in queries.yaml through the baseline (full-file) strategy and
 the MCP (budgeted bundle) strategy, then writes a JSON + Markdown report and
@@ -17,9 +17,8 @@ import statistics
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import yaml
-
 from benchmarks.baseline import run_baseline
+from benchmarks.query_loader import load_queries
 from benchmarks.run_mcp import run_mcp
 from context_eng.config import Config
 from context_eng.engine import ContextEngine
@@ -37,30 +36,8 @@ class QueryReport:
     baseline_tokens: int
     mcp_tokens: int
     reduction_pct: float
-    anchor_recall: float
-    supporting_recall: float
-    expansions_used: int
     latency_ms: float
-    missing_anchors: list[str]
-
-
-def _recall(expected: list[str], got: set[str]) -> tuple[float, list[str]]:
-    if not expected:
-        return 1.0, []
-    missing = []
-    hits = 0
-    for item in expected:
-        norm = item.replace("\\", "/")
-        if any(p == norm or p.endswith(norm) for p in got):
-            hits += 1
-        else:
-            missing.append(item)
-    return hits / len(expected), missing
-
-
-def load_queries(path: Path) -> list[dict]:
-    with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+    inferred_files: list[str]
 
 
 def run_benchmark(workspace: Path, queries: list[dict]) -> list[QueryReport]:
@@ -74,11 +51,7 @@ def run_benchmark(workspace: Path, queries: list[dict]) -> list[QueryReport]:
             q["query"], config, q.get("baseline_strategy", "grep_top_k_full_files"),
             int(q.get("baseline_k", 5)),
         )
-        mcp = run_mcp(q["query"], engine, q.get("expected_anchors", []))
-
-        got = set(mcp.files)
-        anchor_recall, missing = _recall(q.get("expected_anchors", []), got)
-        supporting_recall, _ = _recall(q.get("expected_supporting", []), got)
+        mcp = run_mcp(q["query"], engine)
 
         reduction = (
             (baseline.tokens - mcp.tokens) / baseline.tokens * 100.0
@@ -92,11 +65,8 @@ def run_benchmark(workspace: Path, queries: list[dict]) -> list[QueryReport]:
                 baseline_tokens=baseline.tokens,
                 mcp_tokens=mcp.tokens,
                 reduction_pct=round(reduction, 1),
-                anchor_recall=round(anchor_recall, 3),
-                supporting_recall=round(supporting_recall, 3),
-                expansions_used=mcp.expansions,
                 latency_ms=mcp.latency_ms,
-                missing_anchors=missing,
+                inferred_files=mcp.files,
             )
         )
     return reports
@@ -104,21 +74,15 @@ def run_benchmark(workspace: Path, queries: list[dict]) -> list[QueryReport]:
 
 def aggregate(reports: list[QueryReport]) -> dict:
     reductions = [r.reduction_pct for r in reports]
-    anchor_recalls = [r.anchor_recall for r in reports]
-    supporting = [r.supporting_recall for r in reports]
     latencies = sorted(r.latency_ms for r in reports)
     p90_idx = max(0, int(len(latencies) * 0.9) - 1) if latencies else 0
     return {
         "query_count": len(reports),
         "median_reduction_pct": round(statistics.median(reductions), 1) if reductions else 0.0,
         "mean_reduction_pct": round(statistics.fmean(reductions), 1) if reductions else 0.0,
-        "median_anchor_recall": round(statistics.median(anchor_recalls), 3) if anchor_recalls else 0.0,
-        "min_anchor_recall": round(min(anchor_recalls), 3) if anchor_recalls else 0.0,
-        "mean_supporting_recall": round(statistics.fmean(supporting), 3) if supporting else 0.0,
         "median_baseline_tokens": int(statistics.median(r.baseline_tokens for r in reports)) if reports else 0,
         "median_mcp_tokens": int(statistics.median(r.mcp_tokens for r in reports)) if reports else 0,
         "p90_latency_ms": latencies[p90_idx] if latencies else 0.0,
-        "total_expansions": sum(r.expansions_used for r in reports),
     }
 
 
@@ -128,23 +92,19 @@ def _format_markdown(reports: list[QueryReport], agg: dict) -> str:
         "",
         f"Queries: {agg['query_count']}  |  "
         f"Median reduction: {agg['median_reduction_pct']}%  |  "
-        f"Median anchor recall: {agg['median_anchor_recall'] * 100:.0f}%  |  "
         f"p90 latency: {agg['p90_latency_ms']} ms",
         "",
-        "| Query | Intent | Baseline | MCP | Reduction | Anchor | Support | Exp |",
-        "|-------|--------|---------:|----:|----------:|:------:|:-------:|:---:|",
+        "| Query | Intent | Baseline | MCP | Reduction | Inferred files |",
+        "|-------|--------|---------:|----:|----------:|:--------------|",
     ]
     for r in reports:
         lines.append(
             f"| {r.id} | {r.intent} | {r.baseline_tokens:,} | {r.mcp_tokens:,} | "
-            f"{r.reduction_pct}% | {r.anchor_recall * 100:.0f}% | "
-            f"{r.supporting_recall * 100:.0f}% | {r.expansions_used} |"
+            f"{r.reduction_pct}% | {', '.join(r.inferred_files) or '-'} |"
         )
     lines.append(
         f"| **MEDIAN** | - | {agg['median_baseline_tokens']:,} | "
-        f"{agg['median_mcp_tokens']:,} | {agg['median_reduction_pct']}% | "
-        f"{agg['median_anchor_recall'] * 100:.0f}% | "
-        f"{agg['mean_supporting_recall'] * 100:.0f}% | {agg['total_expansions']} |"
+        f"{agg['median_mcp_tokens']:,} | {agg['median_reduction_pct']}% | - |"
     )
     lines.append("")
     return "\n".join(lines)

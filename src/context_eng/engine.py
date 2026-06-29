@@ -191,15 +191,19 @@ class ContextEngine:
         )
 
         inferred_anchor_files: list[Path] = []
-        if not anchor_files and self.config.enable_anchor_inference:
+        if self.config.enable_anchor_inference and grep:
+            explicit_anchor_rels = {relpath(path, workspace) for path in anchor_files}
             inferred = infer_anchor_files(
                 query,
                 grep,
                 limit=self.config.max_inferred_anchor_files,
                 min_score=self.config.inferred_anchor_min_score,
             )
-            analysis.signals.inferred_files = [item.path for item in inferred]
-            inferred_anchor_files = [workspace / item.path for item in inferred]
+            inferred_rels = [
+                item.path for item in inferred if item.path not in explicit_anchor_rels
+            ]
+            analysis.signals.inferred_files = inferred_rels
+            inferred_anchor_files = [workspace / rel for rel in inferred_rels]
 
         # Tier 1+2: anchors and symbol slices.
         for path in anchor_files:
