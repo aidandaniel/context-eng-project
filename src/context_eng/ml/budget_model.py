@@ -88,10 +88,21 @@ class RandomForestBudgetModel:
         confidence = float(probabilities[best_idx])
 
         budget = raw_bucket
-        if confidence < self.confidence_threshold and budget < fixed_budget.recommended:
-            budget = _next_bucket(budget)
+        while confidence < self.confidence_threshold and budget < fixed_budget.recommended:
+            next_budget = _next_bucket(budget)
+            if next_budget == budget:
+                break
+            budget = next_budget
 
-        budget = clamp(budget, fixed_budget.min, fixed_budget.max)
+        query_tokens = int(features.get("query_tokens", 0))
+        if query_tokens >= 35 and budget < 5000:
+            budget = max(budget, 5000)
+        if query_tokens >= 55 and budget < 8000:
+            budget = max(budget, 8000)
+        if query_tokens >= 75 and budget < 10000:
+            budget = max(budget, 10000)
+
+        budget = clamp(budget, BUDGET_BUCKETS[0], BUDGET_BUCKETS[-1])
         return BudgetPrediction(
             budget=budget,
             raw_bucket=raw_bucket,

@@ -99,12 +99,18 @@ def label_all(workspace: Path, queries_path: Path) -> list[dict[str, Any]]:
         label_source = "sweep"
         y = sweep["y"]
         if target_budget is not None:
-            y = int(target_budget)
-            if y not in BUDGET_BUCKETS:
+            target = int(target_budget)
+            if target not in BUDGET_BUCKETS:
                 raise ValueError(
                     f"target_budget for {item['id']} must be one of {BUDGET_BUCKETS}"
                 )
-            label_source = "target_budget"
+            ok_at_target = any(
+                step["budget"] == target and step["anchors_ok"]
+                for step in sweep["sweep_trace"]
+            )
+            if ok_at_target:
+                y = target
+                label_source = "target_budget"
         expected_tokens = tokens_at_budget(sweep["sweep_trace"], y)
         rows.append(
             {

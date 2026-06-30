@@ -51,7 +51,7 @@ def run_benchmark(
     reports: list[QueryReport] = []
     for q in queries:
         baseline = run_baseline(
-            q["query"], config, q.get("baseline_strategy", "grep_top_k_full_files"),
+            q["query"], cfg, q.get("baseline_strategy", "grep_top_k_full_files"),
             int(q.get("baseline_k", 5)),
         )
         mcp = run_mcp(q["query"], engine)

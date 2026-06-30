@@ -42,6 +42,7 @@ ignore_missing_imports = true
 module = [
     "context_eng.config",
     "context_eng.ml.generate_labels",
+    "context_eng.ml.eval_rf",
     "context_eng.retrieval.anchor_inference",
     "context_eng.server",
 ]

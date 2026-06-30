@@ -19,11 +19,14 @@ INTENT_COLUMNS = [
 
 BASE_FEATURE_NAMES = [
     "query_tokens",
+    "query_token_log",
     "mentioned_files",
     "mentioned_symbols",
+    "retrieval_signal_count",
     "has_stack_trace",
     "has_error_token",
     "intent_confidence",
+    "intent_budget",
     "repo_file_count",
     "repo_loc_log",
 ]
@@ -60,13 +63,21 @@ def extract_features(
     _ = query  # API symmetry for label gen; v1 reads analysis only
     signals = analysis.signals
     file_count, loc_log = repo_stats(config)
+    retrieval_signals = (
+        len(signals.mentioned_files)
+        + len(signals.mentioned_symbols)
+        + len(signals.inferred_files)
+    )
     features: dict[str, float | int] = {
         "query_tokens": signals.query_tokens,
+        "query_token_log": math.log10(signals.query_tokens + 1),
         "mentioned_files": len(signals.mentioned_files),
         "mentioned_symbols": len(signals.mentioned_symbols),
+        "retrieval_signal_count": retrieval_signals,
         "has_stack_trace": int(signals.has_stack_trace),
         "has_error_token": int(signals.has_error_token),
         "intent_confidence": analysis.confidence,
+        "intent_budget": analysis.budget.recommended,
         "repo_file_count": file_count,
         "repo_loc_log": loc_log,
     }

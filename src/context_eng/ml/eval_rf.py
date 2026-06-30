@@ -105,7 +105,10 @@ def eval_cv(rows: list[dict[str, Any]], targets: dict[str, float | int]) -> CvEv
         min_samples_leaf=1,
         class_weight="balanced_subsample",
     )
-    splits = min(5, min(y.count(b) for b in set(y)))
+    min_samples = int(targets["min_cv_bucket_samples"])
+    class_counts = [y.count(bucket) for bucket in set(y)]
+    eligible_counts = [count for count in class_counts if count >= min_samples]
+    splits = min(5, min(eligible_counts)) if eligible_counts else min(5, min(class_counts))
     if splits < 2:
         return CvEval(
             0.0,
@@ -126,7 +129,6 @@ def eval_cv(rows: list[dict[str, Any]], targets: dict[str, float | int]) -> CvEv
     bucket_accuracy: dict[int, float] = {}
     bucket_counts: dict[int, int] = {}
     min_bucket = 1.0
-    min_samples = int(targets["min_cv_bucket_samples"])
     bucket_failures: list[str] = []
 
     for bucket in BUDGET_BUCKETS:

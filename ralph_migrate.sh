@@ -135,10 +135,10 @@ while true; do
     echo "ralph_migrate: corpus complete; RF eval gates failing:"
     failed_rf_gates || true
     prompt_file="$RF_PROMPT"
+  elif (( remaining == 0 )); then
+    echo "ralph_migrate: corpus size OK but validate/typecheck failed"
+    prompt_file="$RF_PROMPT"
   else
-    if (( remaining == 0 )); then
-      echo "ralph_migrate: corpus size OK but validate/typecheck failed"
-    fi
     prompt_file="$CORPUS_PROMPT"
   fi
 
