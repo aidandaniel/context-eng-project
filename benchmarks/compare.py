@@ -40,10 +40,13 @@ class QueryReport:
     inferred_files: list[str]
 
 
-def run_benchmark(workspace: Path, queries: list[dict]) -> list[QueryReport]:
-    config = Config(workspace_root=workspace.resolve())
-    # Disable event logging noise during benchmarking by pointing at results.
-    engine = ContextEngine(config=config)
+def run_benchmark(
+    workspace: Path,
+    queries: list[dict],
+    config: Config | None = None,
+) -> list[QueryReport]:
+    cfg = config or Config(workspace_root=workspace.resolve())
+    engine = ContextEngine(config=cfg)
 
     reports: list[QueryReport] = []
     for q in queries:
@@ -127,9 +130,14 @@ def write_reports(
     return json_path, md_path
 
 
-def evaluate(workspace: Path, queries_path: Path, output: Path) -> dict:
+def evaluate(
+    workspace: Path,
+    queries_path: Path,
+    output: Path,
+    config: Config | None = None,
+) -> dict:
     queries = load_queries(queries_path)
-    reports = run_benchmark(workspace, queries)
+    reports = run_benchmark(workspace, queries, config=config)
     agg = aggregate(reports)
     write_reports(reports, agg, output)
     return agg

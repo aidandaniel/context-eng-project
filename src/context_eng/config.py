@@ -53,6 +53,9 @@ class Config:
     # Hard cap on optional chunks so a broad query cannot pad the bundle.
     max_optional_chunks: int = 4
     events_path: Path | None = None
+    # ``intent`` uses the fixed intent budget table; ``rf`` uses ``budget_rf_v2.joblib``.
+    budget_source: str = "intent"
+    ml_model_path: Path | None = None
 
     @property
     def resolved_events_path(self) -> Path:
@@ -98,6 +101,10 @@ def load_config(workspace_root: str | None = None) -> Config:
         overrides["min_chunk_score"] = float(section["min_chunk_score"])
     if "max_optional_chunks" in section:
         overrides["max_optional_chunks"] = int(section["max_optional_chunks"])
+    if "budget_source" in section:
+        overrides["budget_source"] = str(section["budget_source"])
+    if "ml_model_path" in section:
+        overrides["ml_model_path"] = Path(section["ml_model_path"])
     if "intent_budgets" in section:
         budgets = dict(DEFAULT_INTENT_BUDGETS)
         for intent, vals in section["intent_budgets"].items():

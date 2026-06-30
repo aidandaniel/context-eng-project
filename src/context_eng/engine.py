@@ -12,6 +12,7 @@ from context_eng.budget.policy import BudgetPolicy
 from context_eng.config import Config, load_config
 from context_eng.intent import classifier
 from context_eng.intent.budgets import budget_for
+from context_eng.ml.engine_budget import resolve_budget_limit
 from context_eng.logging.store import EventLogger
 from context_eng.models import (
     CandidateChunk,
@@ -116,7 +117,7 @@ class ContextEngine:
             except ValueError:
                 pass
 
-        budget_limit = max_tokens or analysis.budget.recommended
+        budget_limit = resolve_budget_limit(query, analysis, self.config, max_tokens)
 
         candidates = self._build_candidates(query, analysis, workspace)
         bundle = self._pack_and_build(

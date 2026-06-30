@@ -52,6 +52,7 @@ context-eng-mcp = "context_eng.server:main"
 context-eng-benchmark = "benchmarks.compare:main"
 context-eng-ml-labels = "context_eng.ml.generate_labels:main"
 context-eng-ml-train = "context_eng.ml.train_budget:main"
+context-eng-ml-eval = "context_eng.ml.eval_rf:main"
 context-eng-ml-viz-tree = "context_eng.ml.visualize_forest:main"
 
 [tool.setuptools.packages.find]
