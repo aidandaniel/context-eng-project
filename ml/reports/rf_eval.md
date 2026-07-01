@@ -1,14 +1,14 @@
 # RF evaluation report
 
-TOKEN_REDUCTION_GATE: PASS median_reduction=49.5
-P90_LATENCY_GATE: PASS p90_latency_ms=121.3
+TOKEN_REDUCTION_GATE: PASS median_reduction=63.6 threshold_pct=55
+P90_LATENCY_GATE: PASS p90_latency_ms=118.9
 ANCHOR_RETENTION_GATE: PASS retention=1.000
 RF_CV_GATE: PASS overall=0.440 min_bucket=0.000
 
 ## RF benchmark (queries.yaml)
-- median token reduction: 49.5%
-- p90 latency: 121.3 ms
-- median MCP tokens: 1559
+- median token reduction: 63.6%
+- p90 latency: 118.9 ms
+- median MCP tokens: 1075
 
 ## Anchor retention (budget_training_queries.yaml)
 - retention rate: 1.000

@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # Ralph loop for RF-only self-contained MCP (PRD-driven, grep gate checks).
 #
-# Drives an agent to fix failing implementation until all blocking gates in
-# ml/prd/rf_only_self_contained.prd.json grep PASS in ml/reports/rf_eval.md.
+# Blocking gates (from ml/prd/rf_only_self_contained.prd.json):
+#   TOKEN_REDUCTION_GATE  — RF median reduction >= 55% (grep PASS + threshold_pct=55)
+#   P90_LATENCY_GATE      — p90 < 3000 ms
+#   ANCHOR_RETENTION_GATE — runtime anchor retention >= 90%
+#   RF_CV_GATE            — CV overall accuracy >= 25%
+#
+# Drives an agent to fix failing implementation until all PRD grep patterns
+# match in ml/reports/rf_eval.md, then re-runs labels/train/eval each iteration.
 #
 # Usage:
 #   ./ralph_rf_self_contained.sh
@@ -71,6 +77,23 @@ with open(sys.argv[1], encoding="utf-8") as fh:
 
 for cmd in prd.get("agent_loop", {}).get("regenerate_pipeline", []):
     print(cmd)
+PY
+}
+
+prd_print_gate_thresholds() {
+  python - "$PRD" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    prd = json.load(fh)
+
+for gate in prd.get("gates", {}).get("blocking", []):
+    gid = gate.get("id", "?")
+    threshold = gate.get("threshold", "?")
+    unit = gate.get("unit", "")
+    op = gate.get("operator", ">=")
+    print(f"  - {gid}: {op} {threshold} {unit}".rstrip())
 PY
 }
 
@@ -173,7 +196,9 @@ AGENT_CLI="$(resolve_agent_cli)" || { echo "ralph_rf_self_contained: agent CLI n
 
 echo "ralph_rf_self_contained: PRD=$PRD"
 echo "ralph_rf_self_contained: report=$RF_REPORT"
-echo "ralph_rf_self_contained: gates (grep patterns):"
+echo "ralph_rf_self_contained: gate thresholds:"
+prd_print_gate_thresholds | sed 's/^/  /'
+echo "ralph_rf_self_contained: grep patterns:"
 prd_gate_patterns | sed 's/^/  - /'
 
 attempt=0

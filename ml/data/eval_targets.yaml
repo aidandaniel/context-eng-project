@@ -1,4 +1,4 @@
 min_cv_accuracy: 0.25
-min_median_reduction_pct: 30.0
+min_median_reduction_pct: 55.0
 max_p90_latency_ms: 3000.0
 min_anchor_retention: 0.9

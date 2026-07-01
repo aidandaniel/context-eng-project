@@ -45,7 +45,7 @@ def test_eval_cv_writes_pass_line(tmp_path):
         1000,
         True,
         True,
-        "TOKEN_REDUCTION_GATE: PASS median_reduction=50.0",
+        "TOKEN_REDUCTION_GATE: PASS median_reduction=50.0 threshold_pct=55.0",
         "P90_LATENCY_GATE: PASS p90_latency_ms=100.0",
     )
     anchor = AnchorRetentionEval(1.0, True, "ANCHOR_RETENTION_GATE: PASS retention=1.000")
@@ -53,6 +53,7 @@ def test_eval_cv_writes_pass_line(tmp_path):
     text = (tmp_path / "rf_eval.md").read_text(encoding="utf-8")
     assert "RF_CV_GATE: PASS" in text
     assert "TOKEN_REDUCTION_GATE: PASS" in text
+    assert "threshold_pct=55" in text
     assert "P90_LATENCY_GATE: PASS" in text
     assert "ANCHOR_RETENTION_GATE: PASS" in text
 

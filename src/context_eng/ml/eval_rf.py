@@ -44,7 +44,7 @@ def _require_sklearn():
 def _load_targets(path: Path) -> dict[str, float | int]:
     defaults: dict[str, float | int] = {
         "min_cv_accuracy": 0.25,
-        "min_median_reduction_pct": 30.0,
+        "min_median_reduction_pct": 55.0,
         "max_p90_latency_ms": 3000.0,
         "min_anchor_retention": 0.9,
     }
@@ -181,6 +181,7 @@ def eval_rf_benchmark(
 
     token_status = "PASS" if token_reduction_passed else "FAIL"
     latency_status = "PASS" if p90_latency_passed else "FAIL"
+    threshold = float(targets["min_median_reduction_pct"])
     return RfBenchmarkEval(
         median_reduction,
         p90_latency,
@@ -189,7 +190,7 @@ def eval_rf_benchmark(
         p90_latency_passed,
         (
             f"TOKEN_REDUCTION_GATE: {token_status} "
-            f"median_reduction={median_reduction:.1f}"
+            f"median_reduction={median_reduction:.1f} threshold_pct={threshold:.0f}"
         ),
         f"P90_LATENCY_GATE: {latency_status} p90_latency_ms={p90_latency:.1f}",
     )

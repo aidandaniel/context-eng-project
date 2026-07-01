@@ -29,7 +29,7 @@
       "Embedding-based anchor inference",
       "Corpus expansion in budget_training_queries.yaml",
       "Hyperparameter tuning beyond retrain-on-new-labels",
-      "Raising gate thresholds above mediocre baseline",
+      "Raising gate thresholds above the PRD baseline without justification",
       "Removing intent classifier (kept as RF feature + UI metadata)"
     ]
   },
@@ -55,7 +55,7 @@
         "metric": "median_reduction_pct",
         "dataset": "benchmarks/queries.yaml",
         "operator": ">=",
-        "threshold": 30.0,
+        "threshold": 55.0,
         "unit": "percent",
         "report_line_pattern": "TOKEN_REDUCTION_GATE: PASS"
       },
@@ -105,6 +105,7 @@
     "fix_prompt": "ml/prompts/fix_rf_eval.md",
     "gate_grep_patterns": [
       "TOKEN_REDUCTION_GATE: PASS",
+      "threshold_pct=55",
       "P90_LATENCY_GATE: PASS",
       "ANCHOR_RETENTION_GATE: PASS",
       "RF_CV_GATE: PASS"

@@ -51,7 +51,7 @@ class Config:
     # if budget remains -- the budget is a ceiling, not a fill target.
     min_chunk_score: float = 0.15
     # Hard cap on optional chunks so a broad query cannot pad the bundle.
-    max_optional_chunks: int = 4
+    max_optional_chunks: int = 2
     events_path: Path | None = None
     # ``intent`` uses the fixed intent budget table; ``rf`` uses ``budget_rf_v2.joblib``.
     budget_source: str = "intent"
