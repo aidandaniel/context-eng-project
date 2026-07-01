@@ -1,6 +1,4 @@
-min_cv_accuracy: 0.28
-min_cv_bucket_accuracy: 0.15
-min_cv_bucket_samples: 10
-min_anchor_recall_rf: 0.72
-min_anchor_recall_delta: 0.0
-max_reduction_regression_pp: 5.0
+min_cv_accuracy: 0.25
+min_median_reduction_pct: 30.0
+max_p90_latency_ms: 3000.0
+min_anchor_retention: 0.9

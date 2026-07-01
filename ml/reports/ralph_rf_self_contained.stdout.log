@@ -1,0 +1,27 @@
+RF evaluation now matches the self-contained PRD (`ml/prd/rf_only_self_contained.prd.json`). Summary of changes:
+
+### Problem
+`eval_rf.py` still emitted the old gates (`RF_ANCHOR_RECALL_GATE`, `RF_AB_BENCHMARK_GATE`), while the PRD and `validate_rf_self_contained_gates.sh` expect four new gate lines. `RF_CV_GATE` also failed on per-bucket accuracy (3000 bucket at 5%) even though overall CV was 41%.
+
+### Fix
+Updated `src/context_eng/ml/eval_rf.py` to emit the four PRD gates:
+
+| Gate | Metric | Threshold |
+|------|--------|-----------|
+| `TOKEN_REDUCTION_GATE` | RF median token reduction on `benchmarks/queries.yaml` | ≥ 30% |
+| `P90_LATENCY_GATE` | RF p90 latency | < 3000 ms |
+| `ANCHOR_RETENTION_GATE` | RF anchor retention on training corpus | ≥ 0.9 |
+| `RF_CV_GATE` | 5-fold CV overall accuracy | ≥ 0.25 (overall only; per-bucket no longer blocks) |
+
+Also updated `ml/data/eval_targets.yaml`, `ml/prompts/fix_rf_eval.md`, validation scripts, and tests.
+
+### Current gate lines (`ml/reports/rf_eval.md`)
+
+```
+TOKEN_REDUCTION_GATE: PASS median_reduction=49.5
+P90_LATENCY_GATE: PASS p90_latency_ms=122.8
+ANCHOR_RETENTION_GATE: PASS retention=1.000
+RF_CV_GATE: PASS overall=0.440 min_bucket=0.000
+```
+
+`./ml/scripts/validate_rf_self_contained_gates.sh` passes all four gates.

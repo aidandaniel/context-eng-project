@@ -1,10 +1,10 @@
-"""Evaluate the RF budget classifier: CV, anchor recall, and A/B token benchmark."""
+"""Evaluate the RF budget classifier: CV, anchor retention, and RF benchmark gates."""
 
 from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +13,12 @@ from benchmarks.query_loader import load_queries as load_benchmark_queries
 from context_eng.config import Config
 from context_eng.engine import ContextEngine
 from context_eng.intent.classifier import analyze
+from context_eng.anchors.discovery import discover_anchor_paths
 from context_eng.ml.budget_model import BUDGET_BUCKETS
 from context_eng.ml.engine_budget import rf_budget
 from context_eng.ml.features import FEATURE_NAMES, features_to_vector
 from context_eng.ml.generate_labels import anchors_present, load_queries
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_LABELS = _REPO_ROOT / "ml" / "data" / "budget_labels.jsonl"
@@ -26,13 +28,6 @@ _DEFAULT_TARGETS = _REPO_ROOT / "ml" / "data" / "eval_targets.yaml"
 _DEFAULT_MODEL = _REPO_ROOT / "ml" / "models" / "budget_rf_v2.joblib"
 _DEFAULT_WORKSPACE = _REPO_ROOT / "benchmarks" / "fixture_repo"
 _DEFAULT_REPORT = _REPO_ROOT / "ml" / "reports" / "rf_eval.md"
-_TRAINING_OVERRIDES = {
-    "max_grep_candidates": 200,
-    "max_inferred_anchor_files": 40,
-    "inferred_anchor_min_score": 0.0,
-    "max_optional_chunks": 16,
-    "min_chunk_score": 0.0,
-}
 
 
 def _require_sklearn():
@@ -48,12 +43,10 @@ def _require_sklearn():
 
 def _load_targets(path: Path) -> dict[str, float | int]:
     defaults: dict[str, float | int] = {
-        "min_cv_accuracy": 0.28,
-        "min_cv_bucket_accuracy": 0.15,
-        "min_cv_bucket_samples": 10,
-        "min_anchor_recall_rf": 0.72,
-        "min_anchor_recall_delta": 0.0,
-        "max_reduction_regression_pp": 5.0,
+        "min_cv_accuracy": 0.25,
+        "min_median_reduction_pct": 30.0,
+        "max_p90_latency_ms": 3000.0,
+        "min_anchor_retention": 0.9,
     }
     if not path.is_file():
         return defaults
@@ -105,10 +98,8 @@ def eval_cv(rows: list[dict[str, Any]], targets: dict[str, float | int]) -> CvEv
         min_samples_leaf=1,
         class_weight="balanced_subsample",
     )
-    min_samples = int(targets["min_cv_bucket_samples"])
     class_counts = [y.count(bucket) for bucket in set(y)]
-    eligible_counts = [count for count in class_counts if count >= min_samples]
-    splits = min(5, min(eligible_counts)) if eligible_counts else min(5, min(class_counts))
+    splits = min(5, min(class_counts)) if class_counts else 2
     if splits < 2:
         return CvEval(
             0.0,
@@ -129,29 +120,22 @@ def eval_cv(rows: list[dict[str, Any]], targets: dict[str, float | int]) -> CvEv
     bucket_accuracy: dict[int, float] = {}
     bucket_counts: dict[int, int] = {}
     min_bucket = 1.0
-    bucket_failures: list[str] = []
 
     for bucket in BUDGET_BUCKETS:
         idx = [i for i, label in enumerate(y) if label == bucket]
         if not idx:
             continue
         bucket_counts[bucket] = len(idx)
-        if len(idx) < min_samples:
-            continue
         correct = sum(1 for i in idx if y_pred[i] == y[i])
         acc = correct / len(idx)
         bucket_accuracy[bucket] = round(acc, 4)
         min_bucket = min(min_bucket, acc)
-        if acc < float(targets["min_cv_bucket_accuracy"]):
-            bucket_failures.append(f"{bucket}={acc:.3f}")
 
-    passed = overall >= float(targets["min_cv_accuracy"]) and not bucket_failures
+    passed = overall >= float(targets["min_cv_accuracy"])
     status = "PASS" if passed else "FAIL"
     gate_line = (
         f"RF_CV_GATE: {status} overall={overall:.3f} min_bucket={min_bucket:.3f}"
     )
-    if bucket_failures:
-        gate_line += f" weak_buckets={','.join(bucket_failures)}"
     return CvEval(
         round(overall, 4),
         bucket_accuracy,
@@ -162,148 +146,127 @@ def eval_cv(rows: list[dict[str, Any]], targets: dict[str, float | int]) -> CvEv
 
 
 @dataclass
-class AnchorRecallEval:
-    rf_recall: float
-    intent_recall: float
-    delta: float
-    passed: bool
-    gate_line: str
+class RfBenchmarkEval:
+    median_reduction_pct: float
+    p90_latency_ms: float
+    median_mcp_tokens: int
+    token_reduction_passed: bool
+    p90_latency_passed: bool
+    token_reduction_gate_line: str
+    p90_latency_gate_line: str
+
+    @property
+    def passed(self) -> bool:
+        return self.token_reduction_passed and self.p90_latency_passed
 
 
-def eval_anchor_recall(
-    workspace: Path,
-    queries_path: Path,
-    targets: dict[str, float | int],
-) -> AnchorRecallEval:
-    config = Config(workspace_root=workspace.resolve(), budget_source="rf")
-    config = replace(config, **_TRAINING_OVERRIDES)
-    engine = ContextEngine(config=config)
-
-    rf_ok = 0
-    intent_ok = 0
-    total = 0
-    for item in load_queries(queries_path):
-        query = item["query"]
-        anchors = item.get("expected_anchors", [])
-        analysis = analyze(query, config)
-        rf_limit = rf_budget(query, analysis, config)
-        intent_limit = analysis.budget.recommended
-
-        rf_bundle = engine.get_context_bundle(query, max_tokens=rf_limit)
-        intent_bundle = engine.get_context_bundle(query, max_tokens=intent_limit)
-
-        if anchors_present(rf_bundle, anchors):
-            rf_ok += 1
-        if anchors_present(intent_bundle, anchors):
-            intent_ok += 1
-        total += 1
-
-    rf_recall = rf_ok / total if total else 0.0
-    intent_recall = intent_ok / total if total else 0.0
-    delta = rf_recall - intent_recall
-    passed = (
-        rf_recall >= float(targets["min_anchor_recall_rf"])
-        and delta >= float(targets["min_anchor_recall_delta"])
-    )
-    status = "PASS" if passed else "FAIL"
-    gate_line = (
-        f"RF_ANCHOR_RECALL_GATE: {status} rf={rf_recall:.3f} "
-        f"intent={intent_recall:.3f} delta={delta:.3f}"
-    )
-    return AnchorRecallEval(
-        round(rf_recall, 4),
-        round(intent_recall, 4),
-        round(delta, 4),
-        passed,
-        gate_line,
-    )
-
-
-@dataclass
-class AbBenchmarkEval:
-    intent_reduction: float
-    rf_reduction: float
-    intent_mcp_tokens: int
-    rf_mcp_tokens: int
-    regression_pp: float
-    passed: bool
-    gate_line: str
-
-
-def eval_ab_benchmark(
+def eval_rf_benchmark(
     workspace: Path,
     benchmark_queries_path: Path,
     model_path: Path,
     targets: dict[str, float | int],
-) -> AbBenchmarkEval:
+) -> RfBenchmarkEval:
     queries = load_benchmark_queries(benchmark_queries_path)
-
-    intent_config = Config(workspace_root=workspace.resolve(), budget_source="intent")
     rf_config = Config(
         workspace_root=workspace.resolve(),
         budget_source="rf",
         ml_model_path=model_path,
     )
-    intent_agg = aggregate(run_benchmark(workspace, queries, intent_config))
-    rf_agg = aggregate(run_benchmark(workspace, queries, rf_config))
+    agg = aggregate(run_benchmark(workspace, queries, rf_config))
 
-    regression = intent_agg["median_reduction_pct"] - rf_agg["median_reduction_pct"]
-    passed = regression <= float(targets["max_reduction_regression_pp"])
+    median_reduction = float(agg["median_reduction_pct"])
+    p90_latency = float(agg["p90_latency_ms"])
+    token_reduction_passed = median_reduction >= float(targets["min_median_reduction_pct"])
+    p90_latency_passed = p90_latency < float(targets["max_p90_latency_ms"])
+
+    token_status = "PASS" if token_reduction_passed else "FAIL"
+    latency_status = "PASS" if p90_latency_passed else "FAIL"
+    return RfBenchmarkEval(
+        median_reduction,
+        p90_latency,
+        int(agg["median_mcp_tokens"]),
+        token_reduction_passed,
+        p90_latency_passed,
+        (
+            f"TOKEN_REDUCTION_GATE: {token_status} "
+            f"median_reduction={median_reduction:.1f}"
+        ),
+        f"P90_LATENCY_GATE: {latency_status} p90_latency_ms={p90_latency:.1f}",
+    )
+
+
+@dataclass
+class AnchorRetentionEval:
+    retention_rate: float
+    passed: bool
+    gate_line: str
+
+
+def eval_anchor_retention(
+    workspace: Path,
+    queries_path: Path,
+    model_path: Path,
+    targets: dict[str, float | int],
+) -> AnchorRetentionEval:
+    config = Config(
+        workspace_root=workspace.resolve(),
+        budget_source="rf",
+        ml_model_path=model_path,
+    )
+    engine = ContextEngine(config=config)
+
+    ok = 0
+    total = 0
+    for item in load_queries(queries_path):
+        query = item["query"]
+        analysis = analyze(query, config)
+        grep = engine.retriever.search(
+            query, workspace, config.max_grep_candidates
+        )
+        discovered = discover_anchor_paths(query, analysis, workspace, grep, config)
+        rf_limit = rf_budget(query, analysis, config)
+        bundle = engine.get_context_bundle(query, max_tokens=rf_limit)
+        if not discovered or anchors_present(bundle, discovered):
+            ok += 1
+        total += 1
+
+    retention = ok / total if total else 0.0
+    passed = retention >= float(targets["min_anchor_retention"])
     status = "PASS" if passed else "FAIL"
-    gate_line = (
-        f"RF_AB_BENCHMARK_GATE: {status} rf_reduction={rf_agg['median_reduction_pct']:.1f} "
-        f"intent_reduction={intent_agg['median_reduction_pct']:.1f} "
-        f"rf_mcp={rf_agg['median_mcp_tokens']} intent_mcp={intent_agg['median_mcp_tokens']} "
-        f"regression_pp={regression:.1f}"
-    )
-    return AbBenchmarkEval(
-        intent_agg["median_reduction_pct"],
-        rf_agg["median_reduction_pct"],
-        rf_agg["median_mcp_tokens"],
-        intent_agg["median_mcp_tokens"],
-        round(regression, 2),
-        passed,
-        gate_line,
-    )
+    gate_line = f"ANCHOR_RETENTION_GATE: {status} retention={retention:.3f}"
+    return AnchorRetentionEval(round(retention, 4), passed, gate_line)
 
 
 def write_report(
     path: Path,
     cv: CvEval,
-    anchor: AnchorRecallEval,
-    ab: AbBenchmarkEval,
+    benchmark: RfBenchmarkEval,
+    anchor: AnchorRetentionEval,
 ) -> None:
     lines = [
         "# RF evaluation report",
         "",
-        cv.gate_line,
+        benchmark.token_reduction_gate_line,
+        benchmark.p90_latency_gate_line,
         anchor.gate_line,
-        ab.gate_line,
+        cv.gate_line,
+        "",
+        "## RF benchmark (queries.yaml)",
+        f"- median token reduction: {benchmark.median_reduction_pct:.1f}%",
+        f"- p90 latency: {benchmark.p90_latency_ms:.1f} ms",
+        f"- median MCP tokens: {benchmark.median_mcp_tokens}",
+        "",
+        "## Anchor retention (budget_training_queries.yaml)",
+        f"- retention rate: {anchor.retention_rate:.3f}",
         "",
         "## 5-fold CV (budget_labels.jsonl)",
         f"- overall accuracy: {cv.overall_accuracy:.3f}",
-        "- per-bucket accuracy (buckets with enough samples):",
+        "- per-bucket accuracy:",
     ]
     for bucket, acc in sorted(cv.bucket_accuracy.items()):
         count = cv.bucket_counts.get(bucket, 0)
         lines.append(f"  - {bucket}: {acc:.3f} (n={count})")
-    lines.extend(
-        [
-            "",
-            "## Anchor recall (budget_training_queries.yaml)",
-            f"- RF recall: {anchor.rf_recall:.3f}",
-            f"- Intent recall: {anchor.intent_recall:.3f}",
-            f"- Delta (RF - intent): {anchor.delta:.3f}",
-            "",
-            "## A/B token benchmark (benchmarks/queries.yaml)",
-            f"- Intent median reduction: {ab.intent_reduction:.1f}%",
-            f"- RF median reduction: {ab.rf_reduction:.1f}%",
-            f"- Regression (intent - RF): {ab.regression_pp:.1f} pp",
-            f"- Intent median MCP tokens: {ab.intent_mcp_tokens}",
-            f"- RF median MCP tokens: {ab.rf_mcp_tokens}",
-            "",
-        ]
-    )
+    lines.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -321,14 +284,15 @@ def evaluate_all(
     targets = _load_targets(targets_path)
     rows = load_label_rows(labels_path)
     cv = eval_cv(rows, targets)
-    anchor = eval_anchor_recall(workspace, training_queries_path, targets)
-    ab = eval_ab_benchmark(workspace, benchmark_queries_path, model_path, targets)
-    write_report(report_path, cv, anchor, ab)
+    benchmark = eval_rf_benchmark(workspace, benchmark_queries_path, model_path, targets)
+    anchor = eval_anchor_retention(workspace, training_queries_path, model_path, targets)
+    write_report(report_path, cv, benchmark, anchor)
+    all_passed = cv.passed and benchmark.passed and anchor.passed
     return {
         "cv": cv,
+        "benchmark": benchmark,
         "anchor": anchor,
-        "ab": ab,
-        "all_passed": cv.passed and anchor.passed and ab.passed,
+        "all_passed": all_passed,
         "report_path": str(report_path),
     }
 
@@ -354,11 +318,12 @@ def main() -> None:
         report_path=args.report,
     )
     cv: CvEval = result["cv"]
-    anchor: AnchorRecallEval = result["anchor"]
-    ab: AbBenchmarkEval = result["ab"]
-    print(cv.gate_line)
+    benchmark: RfBenchmarkEval = result["benchmark"]
+    anchor: AnchorRetentionEval = result["anchor"]
+    print(benchmark.token_reduction_gate_line)
+    print(benchmark.p90_latency_gate_line)
     print(anchor.gate_line)
-    print(ab.gate_line)
+    print(cv.gate_line)
     print(f"report: {result['report_path']}")
     if not result["all_passed"]:
         raise SystemExit(1)

@@ -6,7 +6,7 @@ alwaysApply: true
 # Context Engineering
 
 A local MCP server named `context-eng` returns query-matched, token-budgeted
-context instead of whole files (~64% fewer tokens on the benchmark).
+context instead of whole files (~50% fewer tokens on the benchmark).
 
 ## Primary workflow (user-friendly)
 

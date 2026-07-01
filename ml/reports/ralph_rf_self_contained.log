@@ -1,0 +1,75 @@
+ralph_rf_self_contained: PRD=/c/Users/decke/context-eng-project/ml/prd/rf_only_self_contained.prd.json
+ralph_rf_self_contained: report=/c/Users/decke/context-eng-project/ml/reports/rf_eval.md
+ralph_rf_self_contained: gates (grep patterns):
+  - TOKEN_REDUCTION_GATE: PASS
+  - P90_LATENCY_GATE: PASS
+  - ANCHOR_RETENTION_GATE: PASS
+  - RF_CV_GATE: PASS
+ralph_rf_self_contained: iteration 1 / 10
+ralph_rf_self_contained: context-eng-ml-labels
+Wrote 266 labels to C:\Users\decke\context-eng-project\ml\data\budget_labels.jsonl
+ralph_rf_self_contained: context-eng-ml-train
+Trained RandomForest budget model on 266 rows: C:\Users\decke\context-eng-project\ml\models\budget_rf_v2.joblib
+ralph_rf_self_contained: context-eng-ml-eval
+C:\Users\decke\AppData\Local\Programs\Python\Python312\Lib\site-packages\sklearn\model_selection\_split.py:812: UserWarning: The least populated class in y has only 3 members, which is less than n_splits=5.
+  warnings.warn(
+RF_CV_GATE: FAIL overall=0.410 min_bucket=0.050 weak_buckets=3000=0.050
+RF_ANCHOR_RECALL_GATE: PASS rf=0.887 intent=0.647 delta=0.241
+RF_AB_BENCHMARK_GATE: PASS rf_reduction=49.5 intent_reduction=49.5 rf_mcp=1559 intent_mcp=1559 regression_pp=0.0
+report: C:\Users\decke\context-eng-project\ml\reports\rf_eval.md
+C:\Users\decke\AppData\Local\Programs\Python\Python312\Lib\site-packages\sklearn\model_selection\_split.py:812: UserWarning: The least populated class in y has only 3 members, which is less than n_splits=5.
+  warnings.warn(
+RF_CV_GATE: FAIL overall=0.410 min_bucket=0.050 weak_buckets=3000=0.050
+RF_ANCHOR_RECALL_GATE: PASS rf=0.887 intent=0.647 delta=0.241
+RF_AB_BENCHMARK_GATE: PASS rf_reduction=49.5 intent_reduction=49.5 rf_mcp=1559 intent_mcp=1559 regression_pp=0.0
+report: C:\Users\decke\context-eng-project\ml\reports\rf_eval.md
+grep FAIL: pattern not found in /c/Users/decke/context-eng-project/ml/reports/rf_eval.md -> TOKEN_REDUCTION_GATE: PASS
+grep FAIL: pattern not found in /c/Users/decke/context-eng-project/ml/reports/rf_eval.md -> P90_LATENCY_GATE: PASS
+grep FAIL: pattern not found in /c/Users/decke/context-eng-project/ml/reports/rf_eval.md -> ANCHOR_RETENTION_GATE: PASS
+grep FAIL: pattern not found in /c/Users/decke/context-eng-project/ml/reports/rf_eval.md -> RF_CV_GATE: PASS
+grep FAIL: report contains GATE: FAIL
+RF_CV_GATE: FAIL overall=0.410 min_bucket=0.050 weak_buckets=3000=0.050
+ralph_rf_self_contained: gate validation failed (grep)
+MISSING: TOKEN_REDUCTION_GATE: PASS
+MISSING: P90_LATENCY_GATE: PASS
+MISSING: ANCHOR_RETENTION_GATE: PASS
+MISSING: RF_CV_GATE: PASS
+RF_CV_GATE: FAIL overall=0.410 min_bucket=0.050 weak_buckets=3000=0.050
+MISSING: TOKEN_REDUCTION_GATE: PASS
+MISSING: P90_LATENCY_GATE: PASS
+MISSING: ANCHOR_RETENTION_GATE: PASS
+MISSING: RF_CV_GATE: PASS
+RF_CV_GATE: FAIL overall=0.410 min_bucket=0.050 weak_buckets=3000=0.050
+ralph_rf_self_contained: agent output -> /c/Users/decke/context-eng-project/ml/reports/ralph_rf_self_contained.stdout.log
+```
+TOKEN_REDUCTION_GATE: PASS median_reduction=49.5
+P90_LATENCY_GATE: PASS p90_latency_ms=122.8
+ANCHOR_RETENTION_GATE: PASS retention=1.000
+RF_CV_GATE: PASS overall=0.440 min_bucket=0.000
+```
+
+`./ml/scripts/validate_rf_self_contained_gates.sh` passes all four gates.
+ralph_rf_self_contained: iteration 2 / 10
+ralph_rf_self_contained: context-eng-ml-labels
+Wrote 266 labels to C:\Users\decke\context-eng-project\ml\data\budget_labels.jsonl
+ralph_rf_self_contained: context-eng-ml-train
+Trained RandomForest budget model on 266 rows: C:\Users\decke\context-eng-project\ml\models\budget_rf_v2.joblib
+ralph_rf_self_contained: context-eng-ml-eval
+TOKEN_REDUCTION_GATE: PASS median_reduction=49.5
+P90_LATENCY_GATE: PASS p90_latency_ms=121.1
+ANCHOR_RETENTION_GATE: PASS retention=1.000
+RF_CV_GATE: PASS overall=0.440 min_bucket=0.000
+report: C:\Users\decke\context-eng-project\ml\reports\rf_eval.md
+TOKEN_REDUCTION_GATE: PASS median_reduction=49.5
+P90_LATENCY_GATE: PASS p90_latency_ms=121.3
+ANCHOR_RETENTION_GATE: PASS retention=1.000
+RF_CV_GATE: PASS overall=0.440 min_bucket=0.000
+report: C:\Users\decke\context-eng-project\ml\reports\rf_eval.md
+grep PASS: TOKEN_REDUCTION_GATE: PASS
+grep PASS: P90_LATENCY_GATE: PASS
+grep PASS: ANCHOR_RETENTION_GATE: PASS
+grep PASS: RF_CV_GATE: PASS
+validate_rf_self_contained_gates: all PASS (4 gates)
+src\context_eng\engine.py:50: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+Success: no issues found in 89 source files
+ralph_rf_self_contained: all PRD gates grep PASS + typecheck OK

@@ -1,25 +1,26 @@
 # RF evaluation report
 
-RF_CV_GATE: PASS overall=0.407 min_bucket=0.190
-RF_ANCHOR_RECALL_GATE: PASS rf=0.922 intent=0.603 delta=0.319
-RF_AB_BENCHMARK_GATE: PASS rf_reduction=49.5 intent_reduction=49.5 rf_mcp=1559 intent_mcp=1559 regression_pp=0.0
+TOKEN_REDUCTION_GATE: PASS median_reduction=49.5
+P90_LATENCY_GATE: PASS p90_latency_ms=121.3
+ANCHOR_RETENTION_GATE: PASS retention=1.000
+RF_CV_GATE: PASS overall=0.440 min_bucket=0.000
+
+## RF benchmark (queries.yaml)
+- median token reduction: 49.5%
+- p90 latency: 121.3 ms
+- median MCP tokens: 1559
+
+## Anchor retention (budget_training_queries.yaml)
+- retention rate: 1.000
 
 ## 5-fold CV (budget_labels.jsonl)
-- overall accuracy: 0.407
-- per-bucket accuracy (buckets with enough samples):
-  - 2000: 0.447 (n=76)
-  - 6000: 0.191 (n=21)
-  - 8000: 0.585 (n=65)
-  - 10000: 0.217 (n=23)
-
-## Anchor recall (budget_training_queries.yaml)
-- RF recall: 0.922
-- Intent recall: 0.603
-- Delta (RF - intent): 0.319
-
-## A/B token benchmark (benchmarks/queries.yaml)
-- Intent median reduction: 49.5%
-- RF median reduction: 49.5%
-- Regression (intent - RF): 0.0 pp
-- Intent median MCP tokens: 1559
-- RF median MCP tokens: 1559
+- overall accuracy: 0.440
+- per-bucket accuracy:
+  - 2000: 0.382 (n=76)
+  - 3000: 0.100 (n=20)
+  - 4000: 0.812 (n=16)
+  - 5000: 0.771 (n=35)
+  - 6000: 0.238 (n=21)
+  - 8000: 0.486 (n=72)
+  - 10000: 0.261 (n=23)
+  - 15000: 0.000 (n=3)

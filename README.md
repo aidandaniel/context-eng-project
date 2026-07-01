@@ -5,8 +5,9 @@ returns **query-matched, token-budgeted context packs** instead of whole files.
 The goal: cut the input tokens an agent spends gathering context while keeping
 the information it actually needs.
 
-On the bundled benchmark it delivers a **median 66.7% token reduction**
-(2,743 -> 939 median tokens). See `benchmarks/BASELINE.md`.
+On the bundled benchmark (62 queries on the fixture repo) it delivers a
+**median 49.5% token reduction** (2,660 -> 1,559 median tokens; p90 latency
+~97 ms). See `benchmarks/results/latest.md`.
 
 ## Quick start
 
@@ -147,6 +148,9 @@ python -m benchmarks.compare
 ```
 
 Writes `benchmarks/results/latest.{json,md}` and prints an aggregate summary.
+Latest checked-in results: **49.5%** median reduction, **1,559** median MCP
+tokens (baseline **2,660**), **97 ms** p90 latency across **62** queries.
+
 The pytest gate (`tests/test_benchmark.py`) enforces:
 
 - median token reduction >= 30%
