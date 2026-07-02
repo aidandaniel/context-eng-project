@@ -50,12 +50,16 @@ class Config:
     # Optional (non-anchor) chunks below this normalized score are dropped even
     # if budget remains -- the budget is a ceiling, not a fill target.
     min_chunk_score: float = 0.15
-    # Hard cap on optional chunks so a broad query cannot pad the bundle.
-    max_optional_chunks: int = 2
+    # Optional chunk cap: None uses adaptive_max_optional_chunks per query.
+    max_optional_chunks: int | None = None
+    max_optional_chunks_upper: int = 4
+    max_optional_chunks_floor: int = 1
     events_path: Path | None = None
-    # ``intent`` uses the fixed intent budget table; ``rf`` uses ``budget_rf_v2.joblib``.
-    budget_source: str = "intent"
+    # ``rf`` uses ``budget_rf_v2.joblib`` (default); ``intent`` is legacy and ignored at runtime.
+    budget_source: str = "rf"
     ml_model_path: Path | None = None
+    enable_embedding_retriever: bool = False
+    embedding_model_name: str = "all-MiniLM-L6-v2"
 
     @property
     def resolved_events_path(self) -> Path:
@@ -101,10 +105,18 @@ def load_config(workspace_root: str | None = None) -> Config:
         overrides["min_chunk_score"] = float(section["min_chunk_score"])
     if "max_optional_chunks" in section:
         overrides["max_optional_chunks"] = int(section["max_optional_chunks"])
+    if "max_optional_chunks_upper" in section:
+        overrides["max_optional_chunks_upper"] = int(section["max_optional_chunks_upper"])
+    if "max_optional_chunks_floor" in section:
+        overrides["max_optional_chunks_floor"] = int(section["max_optional_chunks_floor"])
     if "budget_source" in section:
         overrides["budget_source"] = str(section["budget_source"])
     if "ml_model_path" in section:
         overrides["ml_model_path"] = Path(section["ml_model_path"])
+    if "enable_embedding_retriever" in section:
+        overrides["enable_embedding_retriever"] = bool(section["enable_embedding_retriever"])
+    if "embedding_model_name" in section:
+        overrides["embedding_model_name"] = str(section["embedding_model_name"])
     if "intent_budgets" in section:
         budgets = dict(DEFAULT_INTENT_BUDGETS)
         for intent, vals in section["intent_budgets"].items():

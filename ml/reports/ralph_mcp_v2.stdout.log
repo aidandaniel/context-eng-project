@@ -1,0 +1,37 @@
+**Phase 4 — Local embedding retriever** is implemented. All MCP v2 gates pass.
+
+### What was added
+
+1. **`EmbeddingRetriever`** (`src/context_eng/retrieval/embedding_retriever.py`) — semantic retrieval via optional `sentence-transformers`, `local_files_only`, off by default
+2. **`CompositeRetriever`** (`src/context_eng/retrieval/composite_retriever.py`) — grep primary, merge embedding hits when enabled
+3. **Config** — `enable_embedding_retriever=False`, `embedding_model_name="all-MiniLM-L6-v2"`
+4. **Engine** — uses `build_retriever()` instead of bare `GrepRetriever`
+5. **`pyproject.toml`** — optional `[embeddings]` extra
+6. **Eval gates** — `REGRESSION_NO_EMBEDDINGS_GATE` and `embedding_eval_recall` audit in `eval_rf.py`
+7. **Tests** — `tests/test_embedding_retriever.py`
+8. **Audit data** — `ml/data/embedding_eval_queries.yaml`
+
+### Gate results (`rf_eval.md`)
+
+| Gate | Result |
+|------|--------|
+| TOKEN_REDUCTION_GATE | PASS — median_reduction=63.5% |
+| P90_LATENCY_GATE | PASS — p90_latency_ms=141.5 |
+| ANCHOR_RETENTION_GATE | PASS — retention=1.000 |
+| RF_CV_GATE | PASS — overall=1.000 |
+| REGRESSION_NO_EMBEDDINGS_GATE | PASS — mismatches=0/266 |
+| embedding_eval_recall | skipped (model not in local cache) |
+
+### Phase marker
+
+`PHASE4_EMBEDDING_RETRIEVER: PASS` in `ml/reports/mcp_v2_status.md`
+
+All five phases are **PASS**; `validate_mcp_v2_gates.sh --all` exits 0.
+
+To run embedding recall audit locally after caching the model:
+
+```bash
+pip install -e '.[embeddings]'
+# download all-MiniLM-L6-v2 once (offline thereafter)
+context-eng-ml-eval
+```

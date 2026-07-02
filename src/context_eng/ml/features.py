@@ -29,6 +29,8 @@ BASE_FEATURE_NAMES = [
     "intent_budget",
     "repo_file_count",
     "repo_loc_log",
+    "discovered_anchor_count",
+    "must_include_token_estimate",
 ]
 
 FEATURE_NAMES = BASE_FEATURE_NAMES + INTENT_COLUMNS
@@ -58,6 +60,9 @@ def extract_features(
     query: str,
     analysis: QueryAnalysis,
     config: Config,
+    *,
+    discovered_anchor_count: int = 0,
+    must_include_token_estimate: int = 0,
 ) -> dict[str, float | int]:
     """Flat feature dict for ML. Values come from ``analysis`` and ``config``."""
     _ = query  # API symmetry for label gen; v1 reads analysis only
@@ -80,6 +85,8 @@ def extract_features(
         "intent_budget": analysis.budget.recommended,
         "repo_file_count": file_count,
         "repo_loc_log": loc_log,
+        "discovered_anchor_count": discovered_anchor_count,
+        "must_include_token_estimate": must_include_token_estimate,
     }
     features.update(_intent_one_hot(analysis.intent))
     return features

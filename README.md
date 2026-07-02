@@ -126,7 +126,8 @@ implement = [8000, 4000, 12000]
 ```
 
 Intent -> budget defaults: debug 6000, implement 8000, explain 4000,
-refactor 10000, review 5000.
+refactor 10000, review 5000. Runtime token ceilings use the trained RF model
+(`budget_source = "rf"` by default); the intent table feeds classifier features only.
 
 ## Tests
 

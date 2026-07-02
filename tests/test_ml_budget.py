@@ -11,8 +11,7 @@ from context_eng.ml.features import (
     features_to_vector,
 )
 from context_eng.ml.generate_labels import label_all
-from context_eng.ml.budget_model import BUDGET_BUCKETS, RandomForestBudgetModel
-from context_eng.models import BudgetInfo
+from context_eng.ml.budget_model import RandomForestBudgetModel
 from context_eng.models import Intent
 
 FIXTURE = Path(__file__).resolve().parents[1] / "benchmarks" / "fixture_repo"
@@ -48,7 +47,7 @@ class _FakeClassifier:
         return [[0.51, 0.49]]
 
 
-def test_random_forest_budget_model_bumps_uncertain_low_prediction():
+def test_random_forest_budget_model_keeps_low_confidence_prediction():
     features = {name: 0 for name in FEATURE_NAMES}
     features["query_tokens"] = 10
     model = RandomForestBudgetModel(
@@ -56,25 +55,22 @@ def test_random_forest_budget_model_bumps_uncertain_low_prediction():
         feature_names=list(FEATURE_NAMES),
         confidence_threshold=0.55,
     )
-    fixed = BudgetInfo(recommended=4000, min=2000, max=6000)
 
-    prediction = model.predict(features, fixed)
+    prediction = model.predict(features)
 
     assert prediction.raw_bucket == 2000
     assert prediction.confidence == 0.51
-    assert prediction.budget == 4000
+    assert prediction.budget == 2000
 
 
-def test_training_corpus_reaches_multiple_budget_buckets():
+def test_training_corpus_uses_inferred_anchor_labels():
     rows = label_all(FIXTURE, TRAINING_QUERIES)
-    budgets = {row["y"] for row in rows}
-    high_budget_rows = [row for row in rows if row["y"] > 2000]
-    upper_buckets = {bucket for bucket in BUDGET_BUCKETS if bucket >= 5000}
 
-    assert any(budget > 2000 for budget in budgets)
-    assert len(upper_buckets & budgets) >= 4
-    assert len(high_budget_rows) >= 12
-    assert max(budgets) >= 10000
-    assert len(budgets) >= 3
+    assert len(rows) >= 12
+    assert all(row["label_source"] in {"inferred_sweep", "target_budget"} for row in rows)
+    assert all("oracle_anchor_recall" in row for row in rows)
+    assert all(row["features"]["discovered_anchor_count"] >= 0 for row in rows)
+    with_anchors = [row for row in rows if row["features"]["discovered_anchor_count"] > 0]
+    assert len(with_anchors) >= len(rows) * 0.9
     for row in rows:
         assert row["expected_tokens"] > 0

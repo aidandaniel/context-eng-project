@@ -1,0 +1,307 @@
+{
+  "prd": {
+    "id": "mcp-v2-roadmap",
+    "version": "1.0.0",
+    "title": "Context-Eng MCP v2 Roadmap",
+    "status": "approved",
+    "created": "2026-07-01",
+    "owner": "context-eng-project",
+    "depends_on": "rf-only-self-contained-mcp"
+  },
+  "north_star": {
+    "statement": "On any single query and open repo, discover anchors without oracle labels, RF picks a fitted budget, pack with adaptive optional chunks, optionally augment retrieval with local embeddings, and train RF on inferred anchors.",
+    "implementation_order": [1, 2, 3, 5, 4]
+  },
+  "baseline": {
+    "token_reduction_pct_rf": 63.6,
+    "anchor_retention": 1.0,
+    "budget_source_production": "intent",
+    "max_optional_chunks": 2,
+    "label_source": "oracle expected_anchors sweep"
+  },
+  "phases": [
+    {
+      "id": 1,
+      "key": "phase1_rf_default",
+      "name": "RF default at runtime",
+      "status": "pending",
+      "marker_pattern": "PHASE1_RF_DEFAULT: PASS",
+      "grep_verify": {
+        "status_md": ["PHASE1_RF_DEFAULT: PASS"],
+        "rf_eval_md": []
+      },
+      "depends_on": [],
+      "problem": "Benchmark/eval use RF; prepare_context still defaults to intent budget table.",
+      "requirements": [
+        "Config.budget_source default rf in src/context_eng/config.py",
+        "resolve_budget_limit: max_tokens then rf_budget then default_max_tokens bucket snap",
+        "Remove intent-table runtime budget branch from engine_budget.py",
+        "Decouple budget_model.predict from fixed_budget.recommended bump",
+        "Log budget_source rf or fallback_default in events JSONL"
+      ],
+      "acceptance": [
+        "get_context_bundle uses RF without explicit budget_source",
+        "Missing model falls back to 8000 bucket without crash",
+        "tests/test_rf_eval.py and tests/test_benchmark.py updated",
+        "TOKEN_REDUCTION_GATE PASS at threshold_pct=55"
+      ],
+      "files": {
+        "modify": [
+          "src/context_eng/config.py",
+          "src/context_eng/ml/engine_budget.py",
+          "src/context_eng/ml/budget_model.py",
+          "src/context_eng/engine.py",
+          "tests/test_rf_eval.py",
+          "tests/test_benchmark.py",
+          "README.md"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "key": "phase2_budget_autofit",
+      "name": "Budget auto-fit for anchors",
+      "status": "pending",
+      "marker_pattern": "PHASE2_BUDGET_AUTOFIT: PASS",
+      "grep_verify": {
+        "status_md": ["PHASE2_BUDGET_AUTOFIT: PASS"],
+        "rf_eval_md": ["BUDGET_AUTOFIT_GATE: PASS"]
+      },
+      "depends_on": [1],
+      "problem": "RF bucket may be too low for must-include anchors; raising inference without auto-fit hurts reduction.",
+      "requirements": [
+        "Add src/context_eng/anchors/fit.py with estimate_must_include_tokens and ensure_budget_fits_anchors",
+        "Wire auto-fit in engine.get_context_bundle after resolve_budget_limit",
+        "Refactor engine._build_candidates to use discover_anchor_paths",
+        "Emit audit line BUDGET_AUTOFIT_GATE in rf_eval report"
+      ],
+      "acceptance": [
+        "tests/test_anchor_fit.py passes",
+        "ANCHOR_RETENTION_GATE >= 90% with max_inferred_anchor_files=6",
+        "TOKEN_REDUCTION_GATE >= 55%",
+        "BUDGET_AUTOFIT_GATE audit line in ml/reports/rf_eval.md"
+      ],
+      "files": {
+        "create": ["src/context_eng/anchors/fit.py", "tests/test_anchor_fit.py"],
+        "modify": ["src/context_eng/engine.py", "src/context_eng/ml/eval_rf.py"]
+      },
+      "constants": {
+        "hard_ceiling_factor": 1.5,
+        "max_inferred_anchor_files_after_autofit": 6
+      }
+    },
+    {
+      "id": 3,
+      "key": "phase3_inferred_labels",
+      "name": "Train labels on inferred anchors",
+      "status": "pending",
+      "marker_pattern": "PHASE3_INFERRED_LABELS: PASS",
+      "grep_verify": {
+        "status_md": ["PHASE3_INFERRED_LABELS: PASS"],
+        "rf_eval_md": []
+      },
+      "depends_on": [1, 2],
+      "problem": "generate_labels uses oracle expected_anchors and training config overrides.",
+      "requirements": [
+        "sweep_one_query_inferred uses discover_anchor_paths at production Config",
+        "label_source inferred_sweep; oracle_anchor_recall audit field only",
+        "Remove _TRAINING_CONFIG_OVERRIDES from generate_labels.py and eval_rf.py",
+        "Regenerate budget_labels.jsonl and budget_rf_v2.joblib",
+        "Optional features: discovered_anchor_count, must_include_token_estimate"
+      ],
+      "acceptance": [
+        "All label rows label_source inferred_sweep",
+        "RF_CV_GATE >= 25%",
+        "TOKEN_REDUCTION_GATE >= 55%",
+        "ANCHOR_RETENTION_GATE >= 90%"
+      ],
+      "files": {
+        "modify": [
+          "src/context_eng/ml/generate_labels.py",
+          "src/context_eng/ml/features.py",
+          "ml/data/budget_labels.jsonl",
+          "ml/models/budget_rf_v2.joblib"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "key": "phase4_embedding_retriever",
+      "name": "Local embedding retriever",
+      "status": "pending",
+      "marker_pattern": "PHASE4_EMBEDDING_RETRIEVER: PASS",
+      "grep_verify": {
+        "status_md": ["PHASE4_EMBEDDING_RETRIEVER: PASS"],
+        "rf_eval_md": ["REGRESSION_NO_EMBEDDINGS_GATE: PASS"]
+      },
+      "depends_on": [2],
+      "problem": "Grep-only retrieval misses semantic matches.",
+      "requirements": [
+        "Optional pyproject embeddings extra sentence-transformers>=3.0",
+        "embedding_retriever.py implementing Retriever protocol",
+        "Config enable_embedding_retriever false by default, model all-MiniLM-L6-v2",
+        "Composite retriever in engine: grep primary, merge embedding hits",
+        "No network calls; local cache only",
+        "ml/data/embedding_eval_queries.yaml audit set"
+      ],
+      "acceptance": [
+        "enable_embedding_retriever false matches pre-phase-4 behavior",
+        "TOKEN_REDUCTION_GATE >= 55% with embeddings off",
+        "Embedding eval audit metric documented in mcp_v2_status.md"
+      ],
+      "files": {
+        "create": [
+          "src/context_eng/retrieval/embedding_retriever.py",
+          "ml/data/embedding_eval_queries.yaml",
+          "tests/test_embedding_retriever.py"
+        ],
+        "modify": ["pyproject.toml", "src/context_eng/config.py", "src/context_eng/engine.py"]
+      },
+      "non_goals": [
+        "Persistent vector DB",
+        "Cloud embedding APIs"
+      ]
+    },
+    {
+      "id": 5,
+      "key": "phase5_adaptive_optional_cap",
+      "name": "Adaptive optional chunk cap",
+      "status": "pending",
+      "marker_pattern": "PHASE5_ADAPTIVE_OPTIONAL_CAP: PASS",
+      "grep_verify": {
+        "status_md": ["PHASE5_ADAPTIVE_OPTIONAL_CAP: PASS"],
+        "rf_eval_md": ["median_optional_chunks_used="]
+      },
+      "depends_on": [2, 3],
+      "problem": "Fixed max_optional_chunks=2 hits benchmark but may starve broad real-repo queries.",
+      "requirements": [
+        "adaptive_max_optional_chunks in engine or packing/adaptive.py",
+        "Config max_optional_chunks_upper default 4, max_optional_chunks_floor default 1",
+        "Policy: base 2, +1 if budget>=8000, +1 if anchors>=4, +1 if query_tokens>=40",
+        "Report median_optional_chunks_used in rf_eval.md"
+      ],
+      "acceptance": [
+        "Narrow queries cap 1-2, TOKEN_REDUCTION >= 55%",
+        "Broad platform queries cap 3-4, ANCHOR_RETENTION >= 90%",
+        "No fixed max_optional_chunks=2 as production default"
+      ],
+      "files": {
+        "create": ["src/context_eng/packing/adaptive.py"],
+        "modify": ["src/context_eng/config.py", "src/context_eng/engine.py", "src/context_eng/ml/eval_rf.py"]
+      },
+      "policy": {
+        "base_cap": 2,
+        "budget_boost_threshold": 8000,
+        "anchor_boost_threshold": 4,
+        "query_tokens_boost_threshold": 40,
+        "upper_bound": 4,
+        "floor": 1
+      }
+    }
+  ],
+  "cumulative_gates": {
+    "blocking": [
+      {
+        "id": "TOKEN_REDUCTION_GATE",
+        "threshold": 55.0,
+        "unit": "percent",
+        "report_line_pattern": "TOKEN_REDUCTION_GATE: PASS",
+        "extra_grep": "threshold_pct=55"
+      },
+      {
+        "id": "P90_LATENCY_GATE",
+        "threshold": 3000.0,
+        "unit": "milliseconds",
+        "report_line_pattern": "P90_LATENCY_GATE: PASS"
+      },
+      {
+        "id": "ANCHOR_RETENTION_GATE",
+        "threshold": 0.9,
+        "unit": "ratio",
+        "report_line_pattern": "ANCHOR_RETENTION_GATE: PASS"
+      },
+      {
+        "id": "RF_CV_GATE",
+        "threshold": 0.25,
+        "unit": "ratio",
+        "report_line_pattern": "RF_CV_GATE: PASS"
+      }
+    ],
+    "phase4_blocking": [
+      {
+        "id": "REGRESSION_NO_EMBEDDINGS_GATE",
+        "report_line_pattern": "REGRESSION_NO_EMBEDDINGS_GATE: PASS",
+        "note": "Required when phase 4 complete; embeddings off matches baseline hash"
+      }
+    ],
+    "audit_only": [
+      "BUDGET_AUTOFIT_GATE",
+      "oracle_anchor_recall",
+      "median_optional_chunks_used",
+      "embedding_eval_recall"
+    ]
+  },
+  "agent_loop": {
+    "script": "ralph_mcp_v2.sh",
+    "eval_command": "context-eng-ml-eval",
+    "report_path": "ml/reports/rf_eval.md",
+    "status_path": "ml/reports/mcp_v2_status.md",
+    "fix_prompt": "ml/prompts/fix_mcp_v2.md",
+    "validate_script": "ml/scripts/validate_mcp_v2_gates.sh",
+    "max_attempts": 10,
+    "gate_grep_patterns": [
+      "TOKEN_REDUCTION_GATE: PASS",
+      "threshold_pct=55",
+      "P90_LATENCY_GATE: PASS",
+      "ANCHOR_RETENTION_GATE: PASS",
+      "RF_CV_GATE: PASS"
+    ],
+    "phase_marker_patterns": [
+      "PHASE1_RF_DEFAULT: PASS",
+      "PHASE2_BUDGET_AUTOFIT: PASS",
+      "PHASE3_INFERRED_LABELS: PASS",
+      "PHASE4_EMBEDDING_RETRIEVER: PASS",
+      "PHASE5_ADAPTIVE_OPTIONAL_CAP: PASS"
+    ],
+    "fail_grep_pattern": "GATE: FAIL",
+    "regenerate_pipeline": [
+      "context-eng-ml-labels",
+      "context-eng-ml-train",
+      "context-eng-ml-eval"
+    ]
+  },
+  "verification": {
+    "commands": [
+      { "cmd": "pytest -m \"not benchmark\"", "expect_exit": 0 },
+      { "cmd": "pytest -m benchmark", "expect_exit": 0 },
+      { "cmd": "context-eng-ml-eval", "expect_exit": 0 },
+      { "cmd": "./ml/scripts/validate_mcp_v2_gates.sh", "expect_exit": 0 },
+      { "cmd": "python -m mypy src/context_eng benchmarks", "expect_exit": 0 }
+    ]
+  },
+  "non_goals": [
+    "Cloud embedding APIs",
+    "Persistent vector index or LSP integration",
+    "Removing intent classifier",
+    "Raising 55% reduction threshold without user approval",
+    "Task-success human eval (future phase 6)"
+  ],
+  "risks": [
+    {
+      "id": "phase3_cv_dip",
+      "mitigation": "Keep RF_CV gate at 25%; add Phase 2 features"
+    },
+    {
+      "id": "embedding_install_size",
+      "mitigation": "Optional extra; off by default"
+    },
+    {
+      "id": "adaptive_cap_reduction",
+      "mitigation": "Floor cap 2 when budget_limit < 6000"
+    },
+    {
+      "id": "autofit_token_bloat",
+      "mitigation": "Bump only when must-include exceeds 1.5x limit"
+    }
+  ]
+}

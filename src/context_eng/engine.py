@@ -12,8 +12,11 @@ from context_eng.budget.policy import BudgetPolicy
 from context_eng.config import Config, load_config
 from context_eng.intent import classifier
 from context_eng.intent.budgets import budget_for
-from context_eng.ml.engine_budget import resolve_budget_limit
+from context_eng.anchors.discovery import discover_anchor_paths, resolve_mentioned_files
+from context_eng.anchors.fit import ensure_budget_fits_anchors
+from context_eng.ml.engine_budget import resolve_budget
 from context_eng.logging.store import EventLogger
+from context_eng.packing.adaptive import adaptive_max_optional_chunks
 from context_eng.models import (
     CandidateChunk,
     ContextBundle,
@@ -22,8 +25,7 @@ from context_eng.models import (
     TokenEstimate,
 )
 from context_eng.ranking.ranker import ChunkRanker, RankWeights
-from context_eng.retrieval.anchor_inference import infer_anchor_files
-from context_eng.retrieval.grep_retriever import GrepRetriever, extract_keywords
+from context_eng.retrieval.composite_retriever import build_retriever
 from context_eng.retrieval.import_graph import local_imports
 from context_eng.retrieval.symbol_slice import find_symbol_span
 from context_eng.tokens import estimate
@@ -57,7 +59,7 @@ class ContextEngine:
         weights: RankWeights | None = None,
     ):
         self.config = config or load_config()
-        self.retriever = GrepRetriever(self.config)
+        self.retriever = build_retriever(self.config)
         self.ranker = ChunkRanker(weights)
         self.policy = BudgetPolicy()
         self.logger = EventLogger(self.config.resolved_events_path)
@@ -117,18 +119,42 @@ class ContextEngine:
             except ValueError:
                 pass
 
-        budget_limit = resolve_budget_limit(query, analysis, self.config, max_tokens)
+        budget = resolve_budget(query, analysis, self.config, max_tokens)
+        budget_limit = budget.limit
 
-        candidates = self._build_candidates(query, analysis, workspace)
+        grep = self.retriever.search(
+            query, workspace, self.config.max_grep_candidates
+        )
+        anchor_paths = discover_anchor_paths(
+            query, analysis, workspace, grep, self.config
+        )
+        if max_tokens is None:
+            budget_limit = ensure_budget_fits_anchors(
+                budget_limit,
+                anchor_paths,
+                workspace,
+                analysis.signals.mentioned_symbols,
+            )
+
+        candidates = self._build_candidates(
+            query, analysis, workspace, grep=grep, anchor_paths=anchor_paths
+        )
         bundle = self._pack_and_build(
-            query, analysis, budget_limit, candidates, expansions=0
+            query, analysis, budget_limit, candidates, expansions=0,
+            anchor_count=len(anchor_paths),
         )
 
         state = _BundleState(query, analysis, budget_limit, candidates)
         state.bundle = bundle
         self._bundles[bundle.bundle_id] = state
 
-        self._log_bundle(bundle, analysis, expansions=0, grep_hits=len(candidates))
+        self._log_bundle(
+            bundle,
+            analysis,
+            expansions=0,
+            grep_hits=len(candidates),
+            budget_source=budget.source,
+        )
         return bundle
 
     def expand_context(
@@ -157,6 +183,9 @@ class ContextEngine:
                 state.candidates.append(c)
                 existing.add(key)
 
+        anchor_count = len(state.analysis.signals.mentioned_files) + len(
+            state.analysis.signals.inferred_files
+        )
         bundle = self._pack_and_build(
             state.query,
             state.analysis,
@@ -164,6 +193,7 @@ class ContextEngine:
             state.candidates,
             expansions=state.expansions,
             bundle_id=bundle_id,
+            anchor_count=anchor_count,
         )
         state.bundle = bundle
         self._log_bundle(
@@ -181,75 +211,65 @@ class ContextEngine:
         query: str,
         analysis: QueryAnalysis,
         workspace: Path,
+        *,
+        grep: list[CandidateChunk] | None = None,
+        anchor_paths: list[str] | None = None,
     ) -> list[CandidateChunk]:
         candidates: list[CandidateChunk] = []
 
-        anchor_files = self._resolve_mentioned_files(
-            analysis.signals.mentioned_files, workspace
-        )
-        grep = self.retriever.search(
-            query, workspace, self.config.max_grep_candidates
-        )
-
-        inferred_anchor_files: list[Path] = []
-        if self.config.enable_anchor_inference and grep:
-            explicit_anchor_rels = {relpath(path, workspace) for path in anchor_files}
-            inferred = infer_anchor_files(
-                query,
-                grep,
-                limit=self.config.max_inferred_anchor_files,
-                min_score=self.config.inferred_anchor_min_score,
+        if grep is None:
+            grep = self.retriever.search(
+                query, workspace, self.config.max_grep_candidates
             )
-            inferred_rels = [
-                item.path for item in inferred if item.path not in explicit_anchor_rels
-            ]
-            analysis.signals.inferred_files = inferred_rels
-            inferred_anchor_files = [workspace / rel for rel in inferred_rels]
+        if anchor_paths is None:
+            anchor_paths = discover_anchor_paths(
+                query, analysis, workspace, grep, self.config
+            )
+
+        explicit_rels = set(
+            resolve_mentioned_files(
+                analysis.signals.mentioned_files,
+                workspace,
+                self.config.ignore_globs,
+            )
+        )
+        analysis.signals.inferred_files = [
+            rel for rel in anchor_paths if rel not in explicit_rels
+        ]
+
+        explicit_files = [workspace / rel for rel in explicit_rels]
+        inferred_files = [
+            workspace / rel for rel in anchor_paths if rel not in explicit_rels
+        ]
 
         # Tier 1+2: anchors and symbol slices.
-        for path in anchor_files:
+        for path in explicit_files:
             candidates.extend(
                 self._anchor_candidates(
                     path, analysis.signals.mentioned_symbols, workspace
                 )
             )
-        for path in inferred_anchor_files:
+        for path in inferred_files:
             candidates.extend(self._inferred_anchor_candidates(path, workspace))
 
         # Tier 2 (global): symbol definitions anywhere in the workspace.
+        all_anchor_files = explicit_files + inferred_files
         if analysis.signals.mentioned_symbols:
             candidates.extend(
                 self._symbol_candidates(
-                    analysis.signals.mentioned_symbols, workspace, anchor_files
+                    analysis.signals.mentioned_symbols, workspace, all_anchor_files
                 )
             )
 
         # Tier 3: 1-hop import neighbors of anchors.
-        candidates.extend(
-            self._import_candidates(anchor_files + inferred_anchor_files, workspace)
-        )
+        candidates.extend(self._import_candidates(all_anchor_files, workspace))
 
         # Tier 4: grep hits.
         candidates.extend(grep)
 
         # Feature post-processing: path_mention + recency.
-        self._apply_features(candidates, anchor_files + inferred_anchor_files, workspace)
+        self._apply_features(candidates, all_anchor_files, workspace)
         return candidates
-
-    def _resolve_mentioned_files(
-        self, mentions: list[str], workspace: Path
-    ) -> list[Path]:
-        if not mentions:
-            return []
-        norm = [m.replace("\\", "/").lstrip("./") for m in mentions]
-        resolved: dict[str, Path] = {}
-        for path in iter_files(workspace, self.config.ignore_globs):
-            rel = relpath(path, workspace)
-            name = path.name
-            for m in norm:
-                if rel.endswith(m) or name == m.split("/")[-1]:
-                    resolved[rel] = path
-        return list(resolved.values())
 
     def _anchor_candidates(
         self, path: Path, symbols: list[str], workspace: Path
@@ -411,7 +431,10 @@ class ContextEngine:
         out: list[CandidateChunk] = []
         # Full file for an explicit focus path.
         if focus:
-            for path in self._resolve_mentioned_files([focus], workspace):
+            for rel in resolve_mentioned_files(
+                [focus], workspace, self.config.ignore_globs
+            ):
+                path = workspace / rel
                 source = read_text(path)
                 if not source:
                     continue
@@ -467,8 +490,20 @@ class ContextEngine:
         candidates: list[CandidateChunk],
         expansions: int,
         bundle_id: str | None = None,
+        anchor_count: int = 0,
     ) -> ContextBundle:
         scored = self.ranker.rank(candidates)
+
+        if self.config.max_optional_chunks is not None:
+            optional_cap = self.config.max_optional_chunks
+        else:
+            optional_cap = adaptive_max_optional_chunks(
+                budget_limit=budget_limit,
+                anchor_count=anchor_count,
+                query_tokens=analysis.signals.query_tokens,
+                floor=self.config.max_optional_chunks_floor,
+                upper=self.config.max_optional_chunks_upper,
+            )
 
         # Partition into must-include anchors vs optional chunks. Optional
         # chunks below the score threshold are dropped (budget is a ceiling,
@@ -490,7 +525,7 @@ class ContextEngine:
                 continue
             if sc.score < self.config.min_chunk_score:
                 continue
-            if optional_kept >= self.config.max_optional_chunks:
+            if optional_kept >= optional_cap:
                 continue
             optional_kept += 1
             kept.append(sc)
@@ -511,6 +546,7 @@ class ContextEngine:
             excluded_summary=excluded_summary,
             bundle_id=bundle_id or EventLogger.new_id(),
             expansions=expansions,
+            optional_chunks_used=optional_kept,
         )
 
     def _log_bundle(
@@ -519,24 +555,26 @@ class ContextEngine:
         analysis: QueryAnalysis,
         expansions: int,
         grep_hits: int,
+        budget_source: str | None = None,
     ) -> None:
-        self.logger.log(
-            {
-                "event": "get_context_bundle",
-                "query_id": bundle.bundle_id,
-                "query_tokens": analysis.signals.query_tokens,
-                "intent": bundle.intent.value,
-                "intent_confidence": analysis.confidence,
-                "budget_assigned": bundle.budget_limit,
-                "budget_used": bundle.budget_used,
-                "chunk_count": len(bundle.chunks),
-                "expansions": expansions,
-                "features": {
-                    "has_stack_trace": analysis.signals.has_stack_trace,
-                    "mentioned_files": len(analysis.signals.mentioned_files),
-                    "inferred_files": len(analysis.signals.inferred_files),
-                    "grep_hits": grep_hits,
-                },
-                "success": None,
-            }
-        )
+        payload: dict[str, object] = {
+            "event": "get_context_bundle",
+            "query_id": bundle.bundle_id,
+            "query_tokens": analysis.signals.query_tokens,
+            "intent": bundle.intent.value,
+            "intent_confidence": analysis.confidence,
+            "budget_assigned": bundle.budget_limit,
+            "budget_used": bundle.budget_used,
+            "chunk_count": len(bundle.chunks),
+            "expansions": expansions,
+            "features": {
+                "has_stack_trace": analysis.signals.has_stack_trace,
+                "mentioned_files": len(analysis.signals.mentioned_files),
+                "inferred_files": len(analysis.signals.inferred_files),
+                "grep_hits": grep_hits,
+            },
+            "success": None,
+        }
+        if budget_source is not None:
+            payload["budget_source"] = budget_source
+        self.logger.log(payload)

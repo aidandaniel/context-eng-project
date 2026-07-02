@@ -18,22 +18,39 @@ FIXTURE = Path(__file__).resolve().parents[1] / "benchmarks" / "fixture_repo"
 LABELS = Path(__file__).resolve().parents[1] / "ml" / "data" / "budget_labels.jsonl"
 
 
-def test_resolve_budget_limit_uses_intent_by_default():
-    from context_eng.ml.engine_budget import resolve_budget_limit
+def test_resolve_budget_limit_uses_rf_by_default():
+    from context_eng.ml.engine_budget import resolve_budget
 
-    cfg = Config(workspace_root=FIXTURE, budget_source="intent")
-    analysis = analyze("Why does refreshToken fail?", cfg)
-    assert resolve_budget_limit("Why does refreshToken fail?", analysis, cfg, None) == (
-        analysis.budget.recommended
+    cfg = Config(workspace_root=FIXTURE)
+    query = "Why does refreshToken fail?"
+    analysis = analyze(query, cfg)
+    resolution = resolve_budget(query, analysis, cfg, None)
+    assert resolution.source == "rf"
+    assert resolution.limit != analysis.budget.recommended or resolution.limit > 0
+
+
+def test_resolve_budget_limit_falls_back_when_model_missing(tmp_path):
+    from context_eng.ml.engine_budget import resolve_budget
+
+    cfg = Config(
+        workspace_root=FIXTURE,
+        ml_model_path=tmp_path / "missing.joblib",
+        default_max_tokens=8000,
     )
+    analysis = analyze("query", cfg)
+    resolution = resolve_budget("query", analysis, cfg, None)
+    assert resolution.source == "fallback_default"
+    assert resolution.limit == 8000
 
 
 def test_resolve_budget_limit_honors_explicit_max_tokens():
-    from context_eng.ml.engine_budget import resolve_budget_limit
+    from context_eng.ml.engine_budget import resolve_budget
 
-    cfg = Config(workspace_root=FIXTURE, budget_source="rf")
+    cfg = Config(workspace_root=FIXTURE)
     analysis = analyze("Why does refreshToken fail?", cfg)
-    assert resolve_budget_limit("q", analysis, cfg, 5000) == 5000
+    resolution = resolve_budget("q", analysis, cfg, 5000)
+    assert resolution.limit == 5000
+    assert resolution.source == "explicit"
 
 
 def test_eval_cv_writes_pass_line(tmp_path):
@@ -58,8 +75,8 @@ def test_eval_cv_writes_pass_line(tmp_path):
     assert "ANCHOR_RETENTION_GATE: PASS" in text
 
 
-def test_engine_accepts_rf_budget_source():
-    cfg = Config(workspace_root=FIXTURE, budget_source="intent")
+def test_engine_uses_rf_budget_by_default():
+    cfg = Config(workspace_root=FIXTURE)
     engine = ContextEngine(config=cfg)
     bundle = engine.get_context_bundle("Why does refreshToken fail immediately after logout?")
     assert bundle.budget_limit > 0

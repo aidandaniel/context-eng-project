@@ -13,7 +13,6 @@ from typing import Any
 
 from context_eng.intent.budgets import clamp
 from context_eng.ml.features import features_to_vector
-from context_eng.models import BudgetInfo
 
 BUDGET_BUCKETS: tuple[int, ...] = (
     2000,
@@ -48,10 +47,11 @@ def _require_joblib():
     return joblib
 
 
-def _next_bucket(bucket: int) -> int:
-    for candidate in BUDGET_BUCKETS:
-        if candidate > bucket:
-            return candidate
+def snap_to_bucket(tokens: int) -> int:
+    """Return the smallest budget bucket that is >= ``tokens``."""
+    for bucket in BUDGET_BUCKETS:
+        if bucket >= tokens:
+            return bucket
     return BUDGET_BUCKETS[-1]
 
 
@@ -68,16 +68,8 @@ class RandomForestBudgetModel:
         self.feature_names = feature_names
         self.confidence_threshold = confidence_threshold
 
-    def predict(
-        self,
-        features: dict[str, float | int],
-        fixed_budget: BudgetInfo,
-    ) -> BudgetPrediction:
-        """Predict a safe budget bucket for ``features``.
-
-        Low-confidence predictions below the fixed intent budget are bumped one
-        bucket upward before final clamping.
-        """
+    def predict(self, features: dict[str, float | int]) -> BudgetPrediction:
+        """Predict a budget bucket for ``features``."""
         values, names = features_to_vector(features)
         if names != self.feature_names:
             raise ValueError("feature vector does not match trained model columns")
@@ -88,11 +80,6 @@ class RandomForestBudgetModel:
         confidence = float(probabilities[best_idx])
 
         budget = raw_bucket
-        while confidence < self.confidence_threshold and budget < fixed_budget.recommended:
-            next_budget = _next_bucket(budget)
-            if next_budget == budget:
-                break
-            budget = next_budget
 
         query_tokens = int(features.get("query_tokens", 0))
         if query_tokens >= 35 and budget < 5000:

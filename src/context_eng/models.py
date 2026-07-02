@@ -86,6 +86,7 @@ class ContextBundle(BaseModel):
     excluded_summary: str
     bundle_id: str
     expansions: int = 0
+    optional_chunks_used: int = 0
 
 
 class TokenEstimate(BaseModel):

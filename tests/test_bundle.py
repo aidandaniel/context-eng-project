@@ -153,7 +153,9 @@ def test_bundle_always_runs_anchor_inference(sample_repo, monkeypatch):
         called["count"] += 1
         return []
 
-    monkeypatch.setattr("context_eng.engine.infer_anchor_files", fake_infer)
+    monkeypatch.setattr(
+        "context_eng.anchors.discovery.infer_anchor_files", fake_infer
+    )
 
     engine.get_context_bundle("Fix TypeError in refreshToken in src/auth/refresh.py")
 
