@@ -5,9 +5,10 @@ returns **query-matched, token-budgeted context packs** instead of whole files.
 The goal: cut the input tokens an agent spends gathering context while keeping
 the information it actually needs.
 
-On the bundled benchmark (62 queries on the fixture repo) it delivers a
-**median 49.5% token reduction** (2,660 -> 1,559 median tokens; p90 latency
-~97 ms). See `benchmarks/results/latest.md`.
+On the bundled benchmark (62 queries on the fixture repo), the RF-backed runtime
+delivers a **median 63.5% token reduction** (~1,075 median MCP tokens; p90
+latency ~119 ms). See `ml/reports/rf_eval.md` (gates) and
+`benchmarks/results/latest.md` (per-query report from `context-eng-benchmark`).
 
 ## Quick start
 
@@ -32,12 +33,12 @@ right code slices, and injects them into the chat. No manual tool juggling.
                                       ->  expand_context (only if needed)
 ```
 
-Instead of reading whole files, the server returns:
+Pipeline (no oracle labels at runtime):
 
-1. **Anchors** - explicitly mentioned files/symbols (always included).
-2. **Symbol slices** - the relevant function/class, not the whole file.
-3. **Import neighbors** - 1-hop dependencies of the anchors.
-4. **Keyword snippets** - top grep matches with a few lines of context.
+1. **Retrieve** — grep matches first; optional local embeddings merge semantic hits.
+2. **Discover anchors** — infer must-include files from query + repo (no user file list).
+3. **Budget** — Random Forest picks a token ceiling; auto-fit bumps the bucket if anchors won't fit.
+4. **Pack** — anchors, symbol slices, import neighbors, and top keyword snippets; adaptive cap on optional chunks.
 
 The token budget is a **ceiling, not a fill target**: low-value chunks are
 dropped even when budget remains.
@@ -65,7 +66,14 @@ This creates a venv, installs the package, registers the MCP server in
 ```powershell
 python -m venv .venv
 source .venv/bin/activate  # on Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+pip install -e ".[dev,ml]"
+```
+
+Optional extras:
+
+```bash
+pip install -e ".[embeddings]"   # semantic retriever (sentence-transformers, off by default)
+pip install -e ".[viz]"          # RF decision-tree visualization
 ```
 
 Add to `~/.cursor/mcp.json` (global, works for all projects):
@@ -117,17 +125,29 @@ default_max_tokens = 8000
 grep_context_lines = 8
 max_grep_candidates = 50
 min_chunk_score = 0.15        # drop optional chunks below this score
-max_optional_chunks = 4       # cap non-anchor chunks
+max_optional_chunks_upper = 4 # adaptive cap ceiling (floor = 1)
+max_inferred_anchor_files = 3
+budget_source = "rf"          # rf | intent (intent is legacy)
+enable_embedding_retriever = false
+embedding_model_name = "all-MiniLM-L6-v2"
 ignore_globs = [".git", "node_modules", "dist", "__pycache__"]
 
 [context_eng.intent_budgets]
-debug = [6000, 3000, 9000]    # [recommended, min, max]
+debug = [6000, 3000, 9000]    # [recommended, min, max] — RF features + UI only
 implement = [8000, 4000, 12000]
 ```
 
-Intent -> budget defaults: debug 6000, implement 8000, explain 4000,
-refactor 10000, review 5000. Runtime token ceilings use the trained RF model
-(`budget_source = "rf"` by default); the intent table feeds classifier features only.
+**Budget resolution** (runtime): explicit `max_tokens` on the tool call → RF model
+(`ml/models/budget_rf_v2.joblib`) → `default_max_tokens` snapped to the nearest
+bucket. Missing model file uses the fallback bucket without crashing.
+
+**Adaptive optional chunks**: when `max_optional_chunks` is unset, the cap scales
+with budget size, discovered anchor count, and query length (median **2.0** on the
+training fixture).
+
+**Embeddings**: set `enable_embedding_retriever = true` and install `.[embeddings]`.
+Grep stays primary; embedding hits are merged and deduped. Off by default — behavior
+matches grep-only.
 
 ## Tests
 
@@ -149,16 +169,34 @@ python -m benchmarks.compare
 ```
 
 Writes `benchmarks/results/latest.{json,md}` and prints an aggregate summary.
-Latest checked-in results: **49.5%** median reduction, **1,559** median MCP
-tokens (baseline **2,660**), **97 ms** p90 latency across **62** queries.
 
 The pytest gate (`tests/test_benchmark.py`) enforces:
 
 - median token reduction >= 30%
 - p90 latency < 3s
 
-To see the "before tuning" effect, raise `min_chunk_score`/`max_optional_chunks`
-limits or widen `grep_context_lines` and re-run; reduction will fall.
+Re-run `context-eng-benchmark` after config changes to refresh the checked-in report.
+
+## ML evaluation
+
+RF budget model training and CI gates:
+
+```bash
+context-eng-ml-labels    # sweep labels from inferred anchors
+context-eng-ml-train     # train budget_rf_v2.joblib
+context-eng-ml-eval      # write ml/reports/rf_eval.md
+```
+
+Current gates (`ml/reports/rf_eval.md`):
+
+| Gate | Threshold | Latest |
+|------|-----------|--------|
+| TOKEN_REDUCTION | median >= 55% | **63.5%** |
+| P90_LATENCY | < 3000 ms | **~119 ms** |
+| ANCHOR_RETENTION | >= 90% | **100%** |
+| RF_CV | >= 25% | **100%** |
+
+Roadmap PRD and Ralph loop: `ml/prd/mcp_v2_roadmap.md`, `./ralph_mcp_v2.sh`.
 
 ## Manual eval checklist
 
@@ -171,22 +209,25 @@ limits or widen `grep_context_lines` and re-run; reduction will fall.
 ## Project layout
 
 ```
-src/context_eng/      # the server + engine (transport-independent core)
+src/context_eng/      # server + engine (transport-independent core)
   server.py           # FastMCP tool wrappers
   engine.py           # orchestration: analyze / bundle / expand
-  intent/             # rule-based classifier + budget table
-  retrieval/          # grep retriever, symbol slicing, import graph
+  anchors/            # runtime anchor discovery + budget auto-fit
+  intent/             # rule-based classifier + budget table (RF features)
+  retrieval/          # grep, optional embeddings, composite merge
   ranking/            # weighted chunk ranker
+  packing/            # adaptive optional-chunk cap
   budget/             # greedy token packing
+  ml/                 # RF budget model, labels, eval gates
   tokens/             # tiktoken / chars-4 estimator
   logging/            # append-only JSONL event log (ML-ready)
 benchmarks/           # fixture repo, queries, baseline/MCP runners, report
+ml/                   # training data, models, PRDs, Ralph scripts
 tests/                # unit tests + benchmark gate
 ```
 
-## Roadmap (v2)
+## Roadmap
 
-- `EmbeddingRetriever` behind the existing `Retriever` protocol.
 - Reverse-dependency edges to raise supporting-context recall.
-- Train a budget model from `.context-eng/events.jsonl` (the logged features are
-  already ML-ready); blend predicted budgets with the fixed table.
+- Persistent embedding index (v1 embeds on demand per query).
+- Task-success / human eval beyond token-reduction gates.
