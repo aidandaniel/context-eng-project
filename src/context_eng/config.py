@@ -46,7 +46,13 @@ class Config:
     max_grep_candidates: int = 50
     enable_anchor_inference: bool = True
     max_inferred_anchor_files: int = 3
+    max_inferred_anchor_files_upper: int = 12
     inferred_anchor_min_score: float = 1.0
+    # Label sweep: smallest bucket with recall >= min_label_recall and tokens <= budget * factor.
+    min_label_recall: float = 0.80
+    label_hard_ceiling_factor: float = 1.5
+    # When False (default), RF predict skips query-length bucket floors.
+    legacy_query_length_floors: bool = False
     # Optional (non-anchor) chunks below this normalized score are dropped even
     # if budget remains -- the budget is a ceiling, not a fill target.
     min_chunk_score: float = 0.15
@@ -60,6 +66,8 @@ class Config:
     ml_model_path: Path | None = None
     enable_embedding_retriever: bool = False
     embedding_model_name: str = "all-MiniLM-L6-v2"
+    # Build/cache ``.context-eng/manifest.json`` for manifest-backed retrieval.
+    manifest_auto_build: bool = True
 
     @property
     def resolved_events_path(self) -> Path:
@@ -99,6 +107,16 @@ def load_config(workspace_root: str | None = None) -> Config:
         overrides["enable_anchor_inference"] = bool(section["enable_anchor_inference"])
     if "max_inferred_anchor_files" in section:
         overrides["max_inferred_anchor_files"] = int(section["max_inferred_anchor_files"])
+    if "max_inferred_anchor_files_upper" in section:
+        overrides["max_inferred_anchor_files_upper"] = int(
+            section["max_inferred_anchor_files_upper"]
+        )
+    if "min_label_recall" in section:
+        overrides["min_label_recall"] = float(section["min_label_recall"])
+    if "label_hard_ceiling_factor" in section:
+        overrides["label_hard_ceiling_factor"] = float(section["label_hard_ceiling_factor"])
+    if "legacy_query_length_floors" in section:
+        overrides["legacy_query_length_floors"] = bool(section["legacy_query_length_floors"])
     if "inferred_anchor_min_score" in section:
         overrides["inferred_anchor_min_score"] = float(section["inferred_anchor_min_score"])
     if "min_chunk_score" in section:
@@ -117,6 +135,8 @@ def load_config(workspace_root: str | None = None) -> Config:
         overrides["enable_embedding_retriever"] = bool(section["enable_embedding_retriever"])
     if "embedding_model_name" in section:
         overrides["embedding_model_name"] = str(section["embedding_model_name"])
+    if "manifest_auto_build" in section:
+        overrides["manifest_auto_build"] = bool(section["manifest_auto_build"])
     if "intent_budgets" in section:
         budgets = dict(DEFAULT_INTENT_BUDGETS)
         for intent, vals in section["intent_budgets"].items():

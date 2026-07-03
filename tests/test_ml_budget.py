@@ -63,11 +63,12 @@ def test_random_forest_budget_model_keeps_low_confidence_prediction():
     assert prediction.budget == 2000
 
 
-def test_training_corpus_uses_inferred_anchor_labels():
+def test_training_corpus_uses_quality_sweep_labels():
     rows = label_all(FIXTURE, TRAINING_QUERIES)
 
     assert len(rows) >= 12
-    assert all(row["label_source"] in {"inferred_sweep", "target_budget"} for row in rows)
+    assert all(row["label_source"] == "quality_sweep" for row in rows)
+    assert all("relevant_file_recall_at_y" in row for row in rows)
     assert all("oracle_anchor_recall" in row for row in rows)
     assert all(row["features"]["discovered_anchor_count"] >= 0 for row in rows)
     with_anchors = [row for row in rows if row["features"]["discovered_anchor_count"] > 0]

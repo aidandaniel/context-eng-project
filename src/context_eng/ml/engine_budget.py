@@ -41,7 +41,10 @@ def rf_budget(query: str, analysis: QueryAnalysis, config: Config) -> int:
         raise FileNotFoundError(f"RF budget model not found: {model_path}")
     model = _load_budget_model(str(model_path.resolve()))
     features = extract_features(query, analysis, config)
-    return model.predict(features).budget
+    return model.predict(
+        features,
+        legacy_query_length_floors=config.legacy_query_length_floors,
+    ).budget
 
 
 def resolve_budget(

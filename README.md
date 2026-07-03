@@ -184,8 +184,11 @@ RF budget model training and CI gates:
 ```bash
 context-eng-ml-labels    # sweep labels from inferred anchors
 context-eng-ml-train     # train budget_rf_v2.joblib
-context-eng-ml-eval      # write ml/reports/rf_eval.md
+context-eng-ml-eval      # write ml/reports/rf_eval.md + rf_eval_dashboard.png
 ```
+
+`context-eng-ml-eval` also writes **`ml/reports/rf_eval_dashboard.png`** — label
+distribution, CV confusion matrix, feature importance, and per-bucket precision/recall.
 
 Current gates (`ml/reports/rf_eval.md`):
 

@@ -68,7 +68,12 @@ class RandomForestBudgetModel:
         self.feature_names = feature_names
         self.confidence_threshold = confidence_threshold
 
-    def predict(self, features: dict[str, float | int]) -> BudgetPrediction:
+    def predict(
+        self,
+        features: dict[str, float | int],
+        *,
+        legacy_query_length_floors: bool = False,
+    ) -> BudgetPrediction:
         """Predict a budget bucket for ``features``."""
         values, names = features_to_vector(features)
         if names != self.feature_names:
@@ -81,13 +86,14 @@ class RandomForestBudgetModel:
 
         budget = raw_bucket
 
-        query_tokens = int(features.get("query_tokens", 0))
-        if query_tokens >= 35 and budget < 5000:
-            budget = max(budget, 5000)
-        if query_tokens >= 55 and budget < 8000:
-            budget = max(budget, 8000)
-        if query_tokens >= 75 and budget < 10000:
-            budget = max(budget, 10000)
+        if legacy_query_length_floors:
+            query_tokens = int(features.get("query_tokens", 0))
+            if query_tokens >= 35 and budget < 5000:
+                budget = max(budget, 5000)
+            if query_tokens >= 55 and budget < 8000:
+                budget = max(budget, 8000)
+            if query_tokens >= 75 and budget < 10000:
+                budget = max(budget, 10000)
 
         budget = clamp(budget, BUDGET_BUCKETS[0], BUDGET_BUCKETS[-1])
         return BudgetPrediction(

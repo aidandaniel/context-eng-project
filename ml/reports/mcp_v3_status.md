@@ -1,0 +1,9 @@
+# MCP v3 phase status
+
+Updated when each phase completes (Ralph agent or manual).
+
+PHASE1_MANIFEST_RIPGREP: PASS
+PHASE2_QUALITY_MODULE: PASS
+PHASE3_BLOCKING_GATES: PASS
+PHASE4_QUALITY_LABELS: PASS
+PHASE5_RF_RETRAIN: PASS

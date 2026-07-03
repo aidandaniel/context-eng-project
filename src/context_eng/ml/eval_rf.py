@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import statistics
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from benchmarks.compare import aggregate, run_benchmark
 from benchmarks.query_loader import load_queries as load_benchmark_queries
 from context_eng.config import Config
 from context_eng.engine import ContextEngine
+from context_eng.eval.quality import relevant_file_recall, task_rubric_pass
 from context_eng.intent.classifier import analyze
 from context_eng.anchors.discovery import discover_anchor_paths
 from context_eng.anchors.fit import ensure_budget_fits_anchors
@@ -27,6 +29,7 @@ from context_eng.models import CandidateChunk
 from context_eng.retrieval.composite_retriever import build_retriever
 from context_eng.retrieval.embedding_retriever import EmbeddingRetriever
 from context_eng.retrieval.grep_retriever import GrepRetriever
+from context_eng.ml.visualize_eval import write_rf_dashboard
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -37,7 +40,9 @@ _DEFAULT_TARGETS = _REPO_ROOT / "ml" / "data" / "eval_targets.yaml"
 _DEFAULT_MODEL = _REPO_ROOT / "ml" / "models" / "budget_rf_v2.joblib"
 _DEFAULT_WORKSPACE = _REPO_ROOT / "benchmarks" / "fixture_repo"
 _DEFAULT_REPORT = _REPO_ROOT / "ml" / "reports" / "rf_eval.md"
+_DEFAULT_DASHBOARD = _REPO_ROOT / "ml" / "reports" / "rf_eval_dashboard.png"
 _DEFAULT_EMBEDDING_EVAL = _REPO_ROOT / "ml" / "data" / "embedding_eval_queries.yaml"
+_DEFAULT_TASK_EVAL = _REPO_ROOT / "ml" / "data" / "task_eval_queries.yaml"
 
 
 def _require_sklearn():
@@ -56,7 +61,10 @@ def _load_targets(path: Path) -> dict[str, float | int]:
         "min_cv_accuracy": 0.25,
         "min_median_reduction_pct": 55.0,
         "max_p90_latency_ms": 3000.0,
+        "min_relevant_file_recall": 0.70,
+        "min_task_success": 0.80,
         "min_anchor_retention": 0.9,
+        "min_label_buckets": 3,
     }
     if not path.is_file():
         return defaults
@@ -89,6 +97,8 @@ class CvEval:
     bucket_counts: dict[int, int]
     passed: bool
     gate_line: str
+    y_true: list[int]
+    y_pred: list[int]
 
 
 def eval_cv(rows: list[dict[str, Any]], targets: dict[str, float | int]) -> CvEval:
@@ -117,6 +127,8 @@ def eval_cv(rows: list[dict[str, Any]], targets: dict[str, float | int]) -> CvEv
             {},
             False,
             "RF_CV_GATE: FAIL reason=insufficient_class_samples",
+            y,
+            [],
         )
 
     y_pred = cross_val_predict(
@@ -152,6 +164,8 @@ def eval_cv(rows: list[dict[str, Any]], targets: dict[str, float | int]) -> CvEv
         bucket_counts,
         passed,
         gate_line,
+        y,
+        [int(v) for v in y_pred],
     )
 
 
@@ -214,24 +228,90 @@ class InferredLabelsEval:
 
 
 def eval_inferred_labels(rows: list[dict[str, Any]]) -> InferredLabelsEval:
-    """Audit label generation uses inferred anchors (not oracle sweep)."""
+    """Audit label generation uses quality/inferred sweeps (not oracle sweep)."""
     recalls: list[float] = []
     inferred_count = 0
     for row in rows:
-        if row.get("label_source") == "inferred_sweep":
+        source = row.get("label_source", "")
+        if source in ("inferred_sweep", "quality_sweep"):
             inferred_count += 1
         if "oracle_anchor_recall" in row:
             recalls.append(float(row["oracle_anchor_recall"]))
     median_recall = sorted(recalls)[len(recalls) // 2] if recalls else 0.0
     gate_line = (
         f"oracle_anchor_recall: median={median_recall:.3f} "
-        f"inferred_sweep_rows={inferred_count}/{len(rows)}"
+        f"quality_sweep_rows={inferred_count}/{len(rows)}"
     )
     return InferredLabelsEval(
         round(median_recall, 4),
         inferred_count,
         gate_line,
     )
+
+
+@dataclass
+class LabelBucketSpreadEval:
+    bucket_count: int
+    passed: bool
+    gate_line: str
+
+
+def eval_label_bucket_spread(
+    rows: list[dict[str, Any]],
+    targets: dict[str, float | int],
+) -> LabelBucketSpreadEval:
+    buckets = {int(row["y"]) for row in rows}
+    min_buckets = int(targets.get("min_label_buckets", 3))
+    passed = len(buckets) >= min_buckets
+    status = "PASS" if passed else "FAIL"
+    gate_line = (
+        f"LABEL_BUCKET_SPREAD: {status} buckets={len(buckets)} "
+        f"min_buckets={min_buckets}"
+    )
+    return LabelBucketSpreadEval(len(buckets), passed, gate_line)
+
+
+@dataclass
+class RetrievalP90Eval:
+    p90_ms: float
+    passed: bool
+    gate_line: str
+
+
+def eval_retrieval_p90(
+    workspace: Path,
+    queries_path: Path,
+    targets: dict[str, float | int],
+) -> RetrievalP90Eval:
+    """Measure p90 grep/composite retrieval latency (manifest-backed)."""
+    config = Config(workspace_root=workspace.resolve())
+    retriever = build_retriever(config)
+    latencies_ms: list[float] = []
+    for item in load_queries(queries_path):
+        query = item["query"]
+        start = time.perf_counter()
+        retriever.search(query, workspace, config.max_grep_candidates)
+        latencies_ms.append((time.perf_counter() - start) * 1000.0)
+
+    if not latencies_ms:
+        return RetrievalP90Eval(
+            0.0,
+            False,
+            "RETRIEVAL_P90_GATE: FAIL reason=no_queries",
+        )
+
+    if len(latencies_ms) >= 10:
+        p90 = statistics.quantiles(latencies_ms, n=10)[8]
+    else:
+        p90 = max(latencies_ms)
+
+    threshold = float(targets["max_p90_latency_ms"])
+    passed = p90 < threshold
+    status = "PASS" if passed else "FAIL"
+    gate_line = (
+        f"RETRIEVAL_P90_GATE: {status} p90_ms={p90:.1f} threshold={int(threshold)}"
+    )
+    return RetrievalP90Eval(round(p90, 2), passed, gate_line)
 
 
 @dataclass
@@ -317,6 +397,98 @@ def eval_optional_chunks(
 
 
 @dataclass
+class RelevantFileRecallEval:
+    recall: float
+    passed: bool
+    gate_line: str
+
+
+@dataclass
+class TaskSuccessEval:
+    success_rate: float
+    passed: bool
+    gate_line: str
+
+
+def load_task_eval_queries(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    with path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh)
+    if not isinstance(data, list):
+        return []
+    return [row for row in data if isinstance(row, dict)]
+
+
+def eval_relevant_file_recall(
+    workspace: Path,
+    queries_path: Path,
+    model_path: Path,
+    targets: dict[str, float | int],
+) -> RelevantFileRecallEval:
+    rows = load_task_eval_queries(queries_path)
+    config = Config(
+        workspace_root=workspace.resolve(),
+        budget_source="rf",
+        ml_model_path=model_path,
+    )
+    engine = ContextEngine(config=config)
+
+    recalls: list[float] = []
+    for item in rows:
+        query = str(item["query"])
+        expected = [str(p) for p in item.get("relevant_files", [])]
+        bundle = engine.get_context_bundle(query)
+        paths = [c.path for c in bundle.chunks]
+        recalls.append(relevant_file_recall(expected, paths))
+
+    recall = statistics.mean(recalls) if recalls else 0.0
+    threshold = float(targets["min_relevant_file_recall"])
+    passed = recall >= threshold
+    status = "PASS" if passed else "FAIL"
+    gate_line = (
+        f"RELEVANT_FILE_RECALL_GATE: {status} "
+        f"recall={recall:.3f} threshold_recall={threshold:.2f}"
+    )
+    return RelevantFileRecallEval(round(recall, 4), passed, gate_line)
+
+
+def eval_task_success(
+    workspace: Path,
+    queries_path: Path,
+    model_path: Path,
+    targets: dict[str, float | int],
+) -> TaskSuccessEval:
+    rows = load_task_eval_queries(queries_path)
+    config = Config(
+        workspace_root=workspace.resolve(),
+        budget_source="rf",
+        ml_model_path=model_path,
+    )
+    engine = ContextEngine(config=config)
+
+    successes = 0
+    total = 0
+    for item in rows:
+        query = str(item["query"])
+        rubric = item.get("rubric") or {}
+        bundle = engine.get_context_bundle(query)
+        total += 1
+        if task_rubric_pass(bundle, rubric):
+            successes += 1
+
+    rate = successes / total if total else 0.0
+    threshold = float(targets["min_task_success"])
+    passed = rate >= threshold
+    status = "PASS" if passed else "FAIL"
+    gate_line = (
+        f"TASK_SUCCESS_GATE: {status} "
+        f"task_success={rate:.3f} threshold_task_success={threshold:.2f}"
+    )
+    return TaskSuccessEval(round(rate, 4), passed, gate_line)
+
+
+@dataclass
 class AnchorRetentionEval:
     retention_rate: float
     passed: bool
@@ -352,10 +524,8 @@ def eval_anchor_retention(
         total += 1
 
     retention = ok / total if total else 0.0
-    passed = retention >= float(targets["min_anchor_retention"])
-    status = "PASS" if passed else "FAIL"
-    gate_line = f"ANCHOR_RETENTION_GATE: {status} retention={retention:.3f}"
-    return AnchorRetentionEval(round(retention, 4), passed, gate_line)
+    gate_line = f"INFERRED_ANCHOR_RETENTION: retention={retention:.3f}"
+    return AnchorRetentionEval(round(retention, 4), True, gate_line)
 
 
 def _retrieval_signature(chunks: list[CandidateChunk]) -> str:
@@ -467,21 +637,32 @@ def write_report(
     path: Path,
     cv: CvEval,
     benchmark: RfBenchmarkEval,
+    relevant_recall: RelevantFileRecallEval,
+    task_success: TaskSuccessEval,
     anchor: AnchorRetentionEval,
     autofit: BudgetAutofitEval | None = None,
     inferred_labels: InferredLabelsEval | None = None,
     optional_chunks: OptionalChunksEval | None = None,
     regression_no_embeddings: RegressionNoEmbeddingsEval | None = None,
     embedding_recall: EmbeddingRecallEval | None = None,
+    label_bucket_spread: LabelBucketSpreadEval | None = None,
+    retrieval_p90: RetrievalP90Eval | None = None,
+    dashboard_path: Path | None = None,
 ) -> None:
     lines = [
         "# RF evaluation report",
         "",
+        relevant_recall.gate_line,
+        task_success.gate_line,
         benchmark.token_reduction_gate_line,
         benchmark.p90_latency_gate_line,
         anchor.gate_line,
         cv.gate_line,
     ]
+    if label_bucket_spread is not None:
+        lines.append(label_bucket_spread.gate_line)
+    if retrieval_p90 is not None:
+        lines.append(retrieval_p90.gate_line)
     if autofit is not None:
         lines.append(autofit.gate_line)
     if inferred_labels is not None:
@@ -493,6 +674,10 @@ def write_report(
     if embedding_recall is not None:
         lines.append(embedding_recall.gate_line)
     lines.extend([
+        "",
+        "## Task quality (task_eval_queries.yaml)",
+        f"- relevant file recall: {relevant_recall.recall:.3f}",
+        f"- task rubric success: {task_success.success_rate:.3f}",
         "",
         "## RF benchmark (queries.yaml)",
         f"- median token reduction: {benchmark.median_reduction_pct:.1f}%",
@@ -525,7 +710,7 @@ def write_report(
         ])
     lines.extend([
         "",
-        "## Anchor retention (budget_training_queries.yaml)",
+        "## Inferred anchor retention (budget_training_queries.yaml)",
         f"- retention rate: {anchor.retention_rate:.3f}",
         "",
         "## 5-fold CV (budget_labels.jsonl)",
@@ -535,6 +720,12 @@ def write_report(
     for bucket, acc in sorted(cv.bucket_accuracy.items()):
         count = cv.bucket_counts.get(bucket, 0)
         lines.append(f"  - {bucket}: {acc:.3f} (n={count})")
+    if dashboard_path is not None:
+        lines.extend([
+            "",
+            "## Dashboard",
+            f"- visualization: `{dashboard_path.as_posix()}`",
+        ])
     lines.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -545,52 +736,80 @@ def evaluate_all(
     labels_path: Path = _DEFAULT_LABELS,
     training_queries_path: Path = _DEFAULT_TRAINING,
     benchmark_queries_path: Path = _DEFAULT_BENCHMARK,
+    task_eval_path: Path = _DEFAULT_TASK_EVAL,
     targets_path: Path = _DEFAULT_TARGETS,
     model_path: Path = _DEFAULT_MODEL,
     workspace: Path = _DEFAULT_WORKSPACE,
     report_path: Path = _DEFAULT_REPORT,
+    dashboard_path: Path = _DEFAULT_DASHBOARD,
     embedding_eval_path: Path = _DEFAULT_EMBEDDING_EVAL,
 ) -> dict[str, Any]:
     targets = _load_targets(targets_path)
     rows = load_label_rows(labels_path)
     cv = eval_cv(rows, targets)
     benchmark = eval_rf_benchmark(workspace, benchmark_queries_path, model_path, targets)
+    relevant_recall = eval_relevant_file_recall(
+        workspace, task_eval_path, model_path, targets
+    )
+    task_success = eval_task_success(workspace, task_eval_path, model_path, targets)
     anchor = eval_anchor_retention(workspace, training_queries_path, model_path, targets)
     autofit = eval_budget_autofit(workspace, training_queries_path, model_path)
     inferred_labels = eval_inferred_labels(rows)
+    label_bucket_spread = eval_label_bucket_spread(rows, targets)
     optional_chunks = eval_optional_chunks(workspace, training_queries_path, model_path)
     regression_no_embeddings = eval_regression_no_embeddings(
         workspace, training_queries_path, model_path
     )
+    retrieval_p90 = eval_retrieval_p90(workspace, training_queries_path, targets)
     embedding_recall = eval_embedding_recall(workspace, embedding_eval_path)
+    write_rf_dashboard(
+        rows=rows,
+        y_true=cv.y_true,
+        y_pred=cv.y_pred,
+        model_path=model_path,
+        output_path=dashboard_path,
+    )
     write_report(
         report_path,
         cv,
         benchmark,
+        relevant_recall,
+        task_success,
         anchor,
         autofit,
         inferred_labels,
         optional_chunks,
         regression_no_embeddings,
         embedding_recall,
+        label_bucket_spread,
+        retrieval_p90,
+        dashboard_path=dashboard_path,
     )
     all_passed = (
         cv.passed
         and benchmark.passed
-        and anchor.passed
+        and relevant_recall.passed
+        and task_success.passed
+        and label_bucket_spread.passed
+        and retrieval_p90.passed
         and regression_no_embeddings.passed
     )
     return {
         "cv": cv,
         "benchmark": benchmark,
+        "relevant_recall": relevant_recall,
+        "task_success": task_success,
         "anchor": anchor,
         "autofit": autofit,
         "inferred_labels": inferred_labels,
+        "label_bucket_spread": label_bucket_spread,
         "optional_chunks": optional_chunks,
         "regression_no_embeddings": regression_no_embeddings,
+        "retrieval_p90": retrieval_p90,
         "embedding_recall": embedding_recall,
         "all_passed": all_passed,
         "report_path": str(report_path),
+        "dashboard_path": str(dashboard_path),
     }
 
 
@@ -599,10 +818,12 @@ def main() -> None:
     parser.add_argument("--labels", type=Path, default=_DEFAULT_LABELS)
     parser.add_argument("--training-queries", type=Path, default=_DEFAULT_TRAINING)
     parser.add_argument("--benchmark-queries", type=Path, default=_DEFAULT_BENCHMARK)
+    parser.add_argument("--task-eval", type=Path, default=_DEFAULT_TASK_EVAL)
     parser.add_argument("--targets", type=Path, default=_DEFAULT_TARGETS)
     parser.add_argument("--model", type=Path, default=_DEFAULT_MODEL)
     parser.add_argument("--workspace", type=Path, default=_DEFAULT_WORKSPACE)
     parser.add_argument("--report", type=Path, default=_DEFAULT_REPORT)
+    parser.add_argument("--dashboard", type=Path, default=_DEFAULT_DASHBOARD)
     parser.add_argument("--embedding-eval", type=Path, default=_DEFAULT_EMBEDDING_EVAL)
     args = parser.parse_args()
 
@@ -610,30 +831,41 @@ def main() -> None:
         labels_path=args.labels,
         training_queries_path=args.training_queries,
         benchmark_queries_path=args.benchmark_queries,
+        task_eval_path=args.task_eval,
         targets_path=args.targets,
         model_path=args.model,
         workspace=args.workspace,
         report_path=args.report,
+        dashboard_path=args.dashboard,
         embedding_eval_path=args.embedding_eval,
     )
     cv: CvEval = result["cv"]
     benchmark: RfBenchmarkEval = result["benchmark"]
+    relevant_recall: RelevantFileRecallEval = result["relevant_recall"]
+    task_success: TaskSuccessEval = result["task_success"]
     anchor: AnchorRetentionEval = result["anchor"]
     autofit: BudgetAutofitEval = result["autofit"]
     inferred: InferredLabelsEval = result["inferred_labels"]
+    spread: LabelBucketSpreadEval = result["label_bucket_spread"]
     optional: OptionalChunksEval = result["optional_chunks"]
     regression: RegressionNoEmbeddingsEval = result["regression_no_embeddings"]
+    retrieval: RetrievalP90Eval = result["retrieval_p90"]
     embedding: EmbeddingRecallEval = result["embedding_recall"]
+    print(relevant_recall.gate_line)
+    print(task_success.gate_line)
     print(benchmark.token_reduction_gate_line)
     print(benchmark.p90_latency_gate_line)
     print(anchor.gate_line)
     print(cv.gate_line)
+    print(spread.gate_line)
+    print(retrieval.gate_line)
     print(autofit.gate_line)
     print(inferred.gate_line)
     print(optional.gate_line)
     print(regression.gate_line)
     print(embedding.gate_line)
     print(f"report: {result['report_path']}")
+    print(f"dashboard: {result['dashboard_path']}")
     if not result["all_passed"]:
         raise SystemExit(1)
 

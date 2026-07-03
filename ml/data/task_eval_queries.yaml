@@ -1,0 +1,46 @@
+# Task-quality eval corpus — hidden labels used only in eval_rf gates.
+# relevant_files: oracle paths a good bundle should include (recall metric).
+# rubric: optional pass/fail checks beyond path overlap.
+
+- id: task_auth_refresh_01
+  query: "Why does refreshToken fail immediately after logout?"
+  relevant_files: ["src/auth/refresh.py", "src/auth/tokens.py"]
+  rubric:
+    expected_paths: ["src/auth/refresh.py"]
+    content_contains: ["refreshToken"]
+
+- id: task_auth_tokens_01
+  query: "Why does verify_token return None for a valid-looking token?"
+  relevant_files: ["src/auth/tokens.py"]
+  rubric:
+    expected_paths: ["src/auth/tokens.py"]
+    content_contains: ["verify_token"]
+
+- id: task_billing_01
+  query: "How does process_card_charge interact with the payment gateway?"
+  relevant_files: ["src/billing/payment.py"]
+  rubric:
+    expected_paths: ["src/billing/payment.py"]
+    content_contains: ["gateway"]
+
+- id: task_users_01
+  query: "Where is deactivate_user implemented and what models does it touch?"
+  relevant_files: ["src/users/service.py", "src/users/models.py"]
+  rubric:
+    any_of_paths:
+      - ["src/users/service.py"]
+      - ["src/users/models.py"]
+    content_contains: ["deactivate"]
+
+- id: task_inventory_01
+  query: "How is stock level tracked in the catalog?"
+  relevant_files: ["src/inventory/stock.py", "src/inventory/catalog.py"]
+  rubric:
+    any_of_paths:
+      - ["src/inventory/stock.py", "src/inventory/catalog.py"]
+
+- id: task_api_01
+  query: "Which routes wire auth middleware for protected endpoints?"
+  relevant_files: ["src/api/routes.py", "src/auth/middleware.py"]
+  rubric:
+    expected_paths: ["src/api/routes.py"]

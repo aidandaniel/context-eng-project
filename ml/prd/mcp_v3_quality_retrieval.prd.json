@@ -1,0 +1,187 @@
+{
+  "prd": {
+    "id": "mcp-v3-quality-retrieval",
+    "version": "1.0.0",
+    "title": "MCP v3 — Quality Gates, Labeling, Repo-Scale Retrieval",
+    "status": "approved",
+    "created": "2026-07-02",
+    "owner": "context-eng-project",
+    "depends_on": "mcp-v2-roadmap"
+  },
+  "north_star": {
+    "statement": "Reduce token spend with bundles that contain relevant files (not just inferred path hits), train RF on recall-aware labels spread across buckets, and search repos via manifest + ripgrep without per-query rglob.",
+    "implementation_order": [1, 2, 3, 4, 5]
+  },
+  "gates": {
+    "blocking": [
+      {
+        "id": "RELEVANT_FILE_RECALL_GATE",
+        "threshold": 0.70,
+        "report_line_pattern": "RELEVANT_FILE_RECALL_GATE: PASS",
+        "extra_grep": "threshold_recall=0.70"
+      },
+      {
+        "id": "TASK_SUCCESS_GATE",
+        "threshold": 0.80,
+        "report_line_pattern": "TASK_SUCCESS_GATE: PASS",
+        "extra_grep": "threshold_task_success=0.80"
+      },
+      {
+        "id": "TOKEN_REDUCTION_GATE",
+        "threshold": 55.0,
+        "report_line_pattern": "TOKEN_REDUCTION_GATE: PASS",
+        "extra_grep": "threshold_pct=55"
+      },
+      {
+        "id": "P90_LATENCY_GATE",
+        "threshold": 3000.0,
+        "report_line_pattern": "P90_LATENCY_GATE: PASS"
+      },
+      {
+        "id": "RF_CV_GATE",
+        "threshold": 0.25,
+        "report_line_pattern": "RF_CV_GATE: PASS"
+      },
+      {
+        "id": "RETRIEVAL_P90_GATE",
+        "threshold": 3000.0,
+        "report_line_pattern": "RETRIEVAL_P90_GATE: PASS"
+      },
+      {
+        "id": "LABEL_BUCKET_SPREAD_GATE",
+        "report_line_pattern": "LABEL_BUCKET_SPREAD: PASS",
+        "extra_grep": "min_buckets=3"
+      }
+    ],
+    "audit_only": [
+      "INFERRED_ANCHOR_RETENTION",
+      "oracle_anchor_recall",
+      "BUDGET_AUTOFIT_GATE",
+      "REGRESSION_NO_EMBEDDINGS_GATE"
+    ],
+    "removed": [
+      "ANCHOR_RETENTION_GATE"
+    ]
+  },
+  "phases": [
+    {
+      "id": 1,
+      "key": "manifest_ripgrep",
+      "name": "Manifest cache + ripgrep retriever",
+      "marker_pattern": "PHASE1_MANIFEST_RIPGREP: PASS",
+      "gate_grep_patterns": [],
+      "grep_verify": {
+        "status_md": ["PHASE1_MANIFEST_RIPGREP: PASS"],
+        "rf_eval_md": []
+      },
+      "verify_commands": [
+        "pytest tests/test_manifest.py tests/test_grep_retriever.py -q"
+      ]
+    },
+    {
+      "id": 2,
+      "key": "quality_module",
+      "name": "Quality eval module + task_eval corpus",
+      "marker_pattern": "PHASE2_QUALITY_MODULE: PASS",
+      "gate_grep_patterns": [],
+      "grep_verify": {
+        "status_md": ["PHASE2_QUALITY_MODULE: PASS"],
+        "rf_eval_md": []
+      },
+      "verify_commands": [
+        "pytest tests/test_quality_eval.py -q"
+      ]
+    },
+    {
+      "id": 3,
+      "key": "blocking_gates",
+      "name": "Blocking quality gates in eval_rf",
+      "marker_pattern": "PHASE3_BLOCKING_GATES: PASS",
+      "gate_grep_patterns": [
+        "RELEVANT_FILE_RECALL_GATE: PASS",
+        "threshold_recall=0.70",
+        "TASK_SUCCESS_GATE: PASS",
+        "threshold_task_success=0.80",
+        "TOKEN_REDUCTION_GATE: PASS",
+        "threshold_pct=55",
+        "P90_LATENCY_GATE: PASS",
+        "RF_CV_GATE: PASS"
+      ],
+      "grep_verify": {
+        "status_md": ["PHASE3_BLOCKING_GATES: PASS"],
+        "rf_eval_md": [
+          "RELEVANT_FILE_RECALL_GATE: PASS",
+          "threshold_recall=0.70",
+          "TASK_SUCCESS_GATE: PASS",
+          "threshold_task_success=0.80"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "key": "quality_labels",
+      "name": "Quality-aware label sweep + adaptive anchors",
+      "marker_pattern": "PHASE4_QUALITY_LABELS: PASS",
+      "gate_grep_patterns": [
+        "LABEL_BUCKET_SPREAD: PASS",
+        "min_buckets=3"
+      ],
+      "grep_verify": {
+        "status_md": ["PHASE4_QUALITY_LABELS: PASS"],
+        "rf_eval_md": [
+          "LABEL_BUCKET_SPREAD: PASS",
+          "min_buckets=3"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "key": "rf_retrain",
+      "name": "RF retrain without legacy floors + full gate suite",
+      "marker_pattern": "PHASE5_RF_RETRAIN: PASS",
+      "gate_grep_patterns": [
+        "RETRIEVAL_P90_GATE: PASS"
+      ],
+      "grep_verify": {
+        "status_md": ["PHASE5_RF_RETRAIN: PASS"],
+        "rf_eval_md": ["RETRIEVAL_P90_GATE: PASS"]
+      }
+    }
+  ],
+  "agent_loop": {
+    "script": "ralph_mcp_v3.sh",
+    "eval_command": "context-eng-ml-eval",
+    "report_path": "ml/reports/rf_eval.md",
+    "status_path": "ml/reports/mcp_v3_status.md",
+    "fix_prompt": "ml/prompts/fix_mcp_v3.md",
+    "validate_script": "ml/scripts/validate_mcp_v3_gates.sh",
+    "max_attempts": 10,
+    "gate_grep_patterns": [
+      "RELEVANT_FILE_RECALL_GATE: PASS",
+      "threshold_recall=0.70",
+      "TASK_SUCCESS_GATE: PASS",
+      "threshold_task_success=0.80",
+      "TOKEN_REDUCTION_GATE: PASS",
+      "threshold_pct=55",
+      "P90_LATENCY_GATE: PASS",
+      "RF_CV_GATE: PASS",
+      "RETRIEVAL_P90_GATE: PASS",
+      "LABEL_BUCKET_SPREAD: PASS",
+      "min_buckets=3"
+    ],
+    "fail_grep_pattern": "GATE: FAIL",
+    "regenerate_pipeline": [
+      "context-eng-ml-labels",
+      "context-eng-ml-train",
+      "context-eng-ml-eval"
+    ]
+  },
+  "verification": {
+    "commands": [
+      { "cmd": "pytest -m \"not benchmark\"", "expect_exit": 0 },
+      { "cmd": "context-eng-ml-eval", "expect_exit": 0 },
+      { "cmd": "./ml/scripts/validate_mcp_v3_gates.sh --all", "expect_exit": 0 },
+      { "cmd": "python -m mypy src/context_eng benchmarks", "expect_exit": 0 }
+    ]
+  }
+}
