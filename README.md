@@ -2,13 +2,44 @@
 
 A local [Model Context Protocol](https://modelcontextprotocol.io) server that
 returns **query-matched, token-budgeted context packs** instead of whole files.
-The goal: cut the input tokens an agent spends gathering context while keeping
-the information it actually needs.
 
-On the bundled benchmark (62 queries on the fixture repo), the RF-backed runtime
-delivers a **median 63.5% token reduction** (~1,075 median MCP tokens; p90
-latency ~119 ms). See `ml/reports/rf_eval.md` (gates) and
-`benchmarks/results/latest.md` (per-query report from `context-eng-benchmark`).
+## Goals
+
+On any single query against an open repo — **without oracle labels or a user-supplied
+file list**:
+
+1. **Retrieve** relevant code (grep-first; optional local embeddings).
+2. **Discover anchors** — infer must-include files from the query + repo.
+3. **Budget** — Random Forest picks a token ceiling; auto-fit bumps the bucket if
+   anchors won't fit.
+4. **Pack** — symbol slices, import neighbors, and keyword snippets under that ceiling.
+5. **Prove quality** — CI gates enforce token reduction *and* relevant-file recall /
+   task rubrics, not just path hits.
+
+The north star: **cut agent input tokens while keeping the context an agent actually
+needs to succeed on the task.**
+
+## Current results
+
+Latest ML gate report: `ml/reports/rf_eval.md` (RF runtime on the fixture repo).
+
+| Gate | Threshold | Latest |
+|------|-----------|--------|
+| TOKEN_REDUCTION | median ≥ 55% | **63.0%** |
+| P90_LATENCY | < 3000 ms | **~215 ms** |
+| RELEVANT_FILE_RECALL | ≥ 70% | **91.7%** |
+| TASK_SUCCESS | ≥ 80% | **100%** |
+| RF_CV | ≥ 25% | **31.6%** |
+| RETRIEVAL_P90 | < 3000 ms | **~153 ms** |
+| LABEL_BUCKET_SPREAD | ≥ 3 buckets | **9 buckets** |
+
+**Shipped roadmaps:** MCP v2 (RF default, budget auto-fit, inferred labels, adaptive
+optional chunks, optional embeddings) and MCP v3 (manifest + ripgrep retrieval,
+quality eval, recall-aware labels) — all phase markers **PASS** in
+`ml/reports/mcp_v2_status.md` and `ml/reports/mcp_v3_status.md`.
+
+Per-query before/after report: `benchmarks/results/latest.md` (regenerate with
+`context-eng-benchmark`).
 
 ## Quick start
 
@@ -33,21 +64,24 @@ right code slices, and injects them into the chat. No manual tool juggling.
                                       ->  expand_context (only if needed)
 ```
 
-Pipeline (no oracle labels at runtime):
+Pipeline:
 
-1. **Retrieve** — grep matches first; optional local embeddings merge semantic hits.
-2. **Discover anchors** — infer must-include files from query + repo (no user file list).
-3. **Budget** — Random Forest picks a token ceiling; auto-fit bumps the bucket if anchors won't fit.
-4. **Pack** — anchors, symbol slices, import neighbors, and top keyword snippets; adaptive cap on optional chunks.
+1. **Index** — cached `.context-eng/manifest.json` avoids full-tree scans each query.
+2. **Retrieve** — ripgrep when available (Python scan fallback); optional embeddings merge semantic hits.
+3. **Discover anchors** — infer must-include files from query + repo.
+4. **Budget** — RF model (`ml/models/budget_rf_v2.joblib`) picks a token ceiling;
+   auto-fit raises the bucket if anchors won't fit.
+5. **Pack** — anchors, symbol slices, import neighbors, and top keyword snippets;
+   adaptive cap on optional chunks (median **2.0** on the training fixture).
 
-The token budget is a **ceiling, not a fill target**: low-value chunks are
-dropped even when budget remains.
+The token budget is a **ceiling, not a fill target**: low-value chunks are dropped
+even when budget remains.
 
 ## Requirements
 
 - Python 3.11+
-- No `ripgrep` or `uv` required (a pure-Python grep fallback is used; `tiktoken`
-  is used for token counting when installed, else a chars/4 heuristic).
+- **ripgrep** recommended (used when on `PATH`; pure-Python grep fallback otherwise)
+- `tiktoken` optional for exact token counts (chars/4 heuristic otherwise)
 
 ## Setup
 
@@ -73,7 +107,7 @@ Optional extras:
 
 ```bash
 pip install -e ".[embeddings]"   # semantic retriever (sentence-transformers, off by default)
-pip install -e ".[viz]"          # RF decision-tree visualization
+pip install -e ".[viz]"          # RF decision-tree visualization (dtreeviz)
 ```
 
 Add to `~/.cursor/mcp.json` (global, works for all projects):
@@ -128,6 +162,7 @@ min_chunk_score = 0.15        # drop optional chunks below this score
 max_optional_chunks_upper = 4 # adaptive cap ceiling (floor = 1)
 max_inferred_anchor_files = 3
 budget_source = "rf"          # rf | intent (intent is legacy)
+manifest_auto_build = true    # cache .context-eng/manifest.json
 enable_embedding_retriever = false
 embedding_model_name = "all-MiniLM-L6-v2"
 ignore_globs = [".git", "node_modules", "dist", "__pycache__"]
@@ -138,16 +173,15 @@ implement = [8000, 4000, 12000]
 ```
 
 **Budget resolution** (runtime): explicit `max_tokens` on the tool call → RF model
-(`ml/models/budget_rf_v2.joblib`) → `default_max_tokens` snapped to the nearest
-bucket. Missing model file uses the fallback bucket without crashing.
+→ `default_max_tokens` snapped to the nearest bucket. Missing model file uses the
+fallback bucket without crashing.
 
 **Adaptive optional chunks**: when `max_optional_chunks` is unset, the cap scales
-with budget size, discovered anchor count, and query length (median **2.0** on the
-training fixture).
+with budget size, discovered anchor count, and query length.
 
 **Embeddings**: set `enable_embedding_retriever = true` and install `.[embeddings]`.
 Grep stays primary; embedding hits are merged and deduped. Off by default — behavior
-matches grep-only.
+matches grep-only (`REGRESSION_NO_EMBEDDINGS_GATE` in eval).
 
 ## Tests
 
@@ -170,36 +204,56 @@ python -m benchmarks.compare
 
 Writes `benchmarks/results/latest.{json,md}` and prints an aggregate summary.
 
-The pytest gate (`tests/test_benchmark.py`) enforces:
+The pytest gate (`tests/test_benchmark.py`) enforces a looser MVP bar:
 
 - median token reduction >= 30%
 - p90 latency < 3s
 
-Re-run `context-eng-benchmark` after config changes to refresh the checked-in report.
+Blocking ML gates (55% reduction, quality recall, etc.) live in `context-eng-ml-eval`.
 
 ## ML evaluation
 
-RF budget model training and CI gates:
+RF budget model training, quality gates, and dashboards:
 
 ```bash
-context-eng-ml-labels    # sweep labels from inferred anchors
+context-eng-ml-labels    # sweep labels from inferred anchors (quality-aware)
 context-eng-ml-train     # train budget_rf_v2.joblib
 context-eng-ml-eval      # write ml/reports/rf_eval.md + rf_eval_dashboard.png
 ```
 
-`context-eng-ml-eval` also writes **`ml/reports/rf_eval_dashboard.png`** — label
-distribution, CV confusion matrix, feature importance, and per-bucket precision/recall.
+`context-eng-ml-eval` writes:
 
-Current gates (`ml/reports/rf_eval.md`):
+- **`ml/reports/rf_eval.md`** — grep-verified gate lines for CI / Ralph loops
+- **`ml/reports/rf_eval_dashboard.png`** — label distribution, CV confusion matrix,
+  feature importance, per-bucket precision/recall (requires `.[ml]` / matplotlib)
 
-| Gate | Threshold | Latest |
-|------|-----------|--------|
-| TOKEN_REDUCTION | median >= 55% | **63.5%** |
-| P90_LATENCY | < 3000 ms | **~119 ms** |
-| ANCHOR_RETENTION | >= 90% | **100%** |
-| RF_CV | >= 25% | **100%** |
+### Visualizations
 
-Roadmap PRD and Ralph loop: `ml/prd/mcp_v2_roadmap.md`, `./ralph_mcp_v2.sh`.
+Use the **project venv** — global installs often lack optional deps.
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[ml]"      # eval dashboard (matplotlib)
+pip install -e ".[viz]"     # decision-tree SVG (dtreeviz + Graphviz dot)
+
+context-eng-ml-eval                              # rf_eval_dashboard.png
+context-eng-ml-viz-tree                          # ml/reports/budget_rf_tree.svg
+# or: .\.venv\Scripts\python.exe -m context_eng.ml.visualize_forest
+```
+
+Tree visualization needs the native [Graphviz](https://graphviz.org/download/)
+`dot` executable on `PATH` (Windows: often `C:\Program Files\Graphviz\bin`).
+
+### Ralph loops (agent-driven PRD verification)
+
+```bash
+./ralph_mcp_v2.sh                    # v2: RF default, auto-fit, inferred labels, …
+./ralph_mcp_v3.sh                    # v3: quality gates, manifest retrieval, …
+VERIFY_ONLY=1 ./ralph_mcp_v3.sh      # grep-verify only (no agent)
+./ml/scripts/validate_mcp_v3_gates.sh --all
+```
+
+PRDs: `ml/prd/mcp_v2_roadmap.md`, `ml/prd/mcp_v3_quality_retrieval.md`.
 
 ## Manual eval checklist
 
@@ -216,21 +270,32 @@ src/context_eng/      # server + engine (transport-independent core)
   server.py           # FastMCP tool wrappers
   engine.py           # orchestration: analyze / bundle / expand
   anchors/            # runtime anchor discovery + budget auto-fit
+  index/              # cached workspace manifest
+  eval/               # relevant-file recall + task rubric checks
   intent/             # rule-based classifier + budget table (RF features)
-  retrieval/          # grep, optional embeddings, composite merge
+  retrieval/          # grep/ripgrep, optional embeddings, composite merge
   ranking/            # weighted chunk ranker
   packing/            # adaptive optional-chunk cap
   budget/             # greedy token packing
-  ml/                 # RF budget model, labels, eval gates
+  ml/                 # RF budget model, labels, eval gates, dashboards
   tokens/             # tiktoken / chars-4 estimator
   logging/            # append-only JSONL event log (ML-ready)
 benchmarks/           # fixture repo, queries, baseline/MCP runners, report
-ml/                   # training data, models, PRDs, Ralph scripts
+ml/                   # training data, models, PRDs, Ralph scripts, reports
 tests/                # unit tests + benchmark gate
 ```
 
 ## Roadmap
 
-- Reverse-dependency edges to raise supporting-context recall.
+**Done (v2 + v3):** RF-default runtime, anchor budget auto-fit, inferred-anchor
+training labels, adaptive optional chunks, optional local embeddings (off by default),
+manifest-backed ripgrep retrieval, blocking quality gates (relevant-file recall +
+task rubrics).
+
+**Next:**
+
 - Persistent embedding index (v1 embeds on demand per query).
-- Task-success / human eval beyond token-reduction gates.
+- Reverse-dependency edges to raise supporting-context recall.
+- Broader task-success / human eval beyond the fixture corpus.
+- Embedding recall audit when `.[embeddings]` is installed (`embedding_eval_recall`
+  in `ml/reports/rf_eval.md`).
