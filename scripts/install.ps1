@@ -14,7 +14,7 @@ if (-not (Test-Path $VenvPython)) {
 }
 
 Write-Host "Installing package..."
-& $VenvPython -m pip install -e "${ProjectRoot}[dev]" -q
+& $VenvPython -m pip install -e "${ProjectRoot}[dev,tokens]" -q
 
 $CursorDir = Join-Path $env:USERPROFILE ".cursor"
 $CommandsDir = Join-Path $CursorDir "commands"

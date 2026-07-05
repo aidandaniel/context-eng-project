@@ -1,7 +1,7 @@
 """Context engine: orchestrates analysis, retrieval, ranking, and packing.
 
 This module contains all the logic and is independent of the MCP transport so
-it can be unit-tested and driven by the benchmark harness directly.
+it can be unit-tested without the MCP transport layer.
 """
 
 from __future__ import annotations

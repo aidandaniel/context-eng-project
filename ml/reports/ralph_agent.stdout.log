@@ -1,6 +1,0 @@
-The platform anchor search finished successfully. It tested combinations of 5–7 files from the fixture repo and found **20 five-file sets** that sweep to the **5000** bucket with a generic platform query.
-
-Most share a core of `mega_identity_commerce`, `mega_observability_config`, `mega_inventory_workflow`, and `mega_incident_response`, plus one additional platform file (e.g. `resilience`, `compliance`, `rollout`, `mega_agent_context`).
-
-That result informed the batch fix — the final queries used proven templates from the existing corpus rather than these generic combos, since matching query text matters as much as anchor selection.
-/15000 remain the hard deficits.

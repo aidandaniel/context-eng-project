@@ -4,7 +4,7 @@ score = 0.4*keyword_match + 0.3*path_mention + 0.2*import_proximity + 0.1*recenc
 
 ``keyword_match`` arrives as a raw hit count and is min-max normalized across
 the candidate set here. The other features are expected to already be in 0..1
-(set by the engine). Weights are configurable so the benchmark can tune them.
+(set by the engine). Weights are configurable via ``Config``.
 """
 
 from __future__ import annotations
