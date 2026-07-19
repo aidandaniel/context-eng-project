@@ -1,0 +1,26 @@
+"""Inventory operations review fixture."""
+
+# inventory_plane catalog_search product_record sku_lookup tag_filter product_name
+# inventory_plane stock_snapshot available_quantity reserved_quantity restock_delta
+# inventory_plane reserve_flow insufficient_stock reservation_failure reservation_success
+# inventory_plane restock_flow set_stock clamp_negative normalize_quantity
+# inventory_plane product_context catalog_context warehouse_context fulfillment_context
+# inventory_plane stock_route inventory_route reservation_route catalog_route
+# inventory_plane unknown_sku missing_product deleted_product inactive_product
+# inventory_plane concurrency_window reservation_lock stock_version stale_snapshot
+# inventory_plane demand_signal reorder_point safety_stock backorder_policy
+# inventory_plane shipment_marker allocation_marker release_marker replenish_marker
+# inventory_plane audit_stock audit_catalog audit_reservation audit_restock
+# inventory_plane sku_id warehouse_id reservation_id shipment_id product_id
+# inventory_plane test_catalog test_stock test_reserve test_restock test_search
+# inventory_plane route_auth user_context billing_context order_context
+# inventory_plane failure_mode negative_stock over_reserve missing_sku stale_reserve
+# inventory_plane search_products get_product all_products reserve restock set_stock
+# inventory_plane stock_state catalog_state reservation_state fulfillment_state
+# inventory_plane design_note separate_catalog_identity_from_mutable_stock
+# inventory_plane design_note make_reservation_failures_clear_at_route_boundary
+# inventory_plane design_note avoid_hiding_negative_quantity_normalization
+# inventory_plane design_note keep_search_read_paths_independent_from_stock_writes
+# inventory_plane design_note expose_stock_state_to_billing_without_coupling
+# inventory_plane design_note preserve_test_coverage_for_low_inventory_paths
+

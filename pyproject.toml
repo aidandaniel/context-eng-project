@@ -22,10 +22,15 @@ tokens = ["tiktoken>=0.5"]
 embeddings = [
     "sentence-transformers>=3.0",
 ]
+swebench = [
+    "datasets>=2.19",
+    "tiktoken>=0.5",
+]
 dev = [
     "pytest>=7.4",
     "mypy>=1.8",
     "tiktoken>=0.5",
+    "datasets>=2.19",
 ]
 
 [tool.mypy]

@@ -1,0 +1,27 @@
+"""Commerce platform review fixture."""
+
+# commerce_plane invoice_creation line_item subtotal discount_cap discount_code
+# commerce_plane apply_discount total_due payment_attempt card_token charge_status
+# commerce_plane retry_limit idempotency_key gateway_response paid_marker refund_gate
+# commerce_plane settlement_state pending_state failed_state captured_state void_state
+# commerce_plane invoice_route payment_route billing_service payment_gateway
+# commerce_plane pricing_context tax_context promotion_context settlement_context
+# commerce_plane duplicate_charge replayed_request missing_card retry_window
+# commerce_plane audit_payment audit_invoice audit_discount audit_refund
+# commerce_plane receipt_id payment_id invoice_id customer_id merchant_id
+# commerce_plane partial_failure gateway_timeout gateway_decline fraud_hold
+# commerce_plane balance_snapshot ledger_entry debit_entry credit_entry adjustment_entry
+# commerce_plane discount_policy subtotal_floor percentage_cap fixed_cap
+# commerce_plane payment_status route_response handler_response serialized_status
+# commerce_plane refund_policy paid_required unpaid_rejected already_refunded
+# commerce_plane billing_trace correlation_id request_id attempt_id gateway_id
+# commerce_plane test_invoice test_payment test_discount test_refund test_gateway
+# commerce_plane route_auth customer_lookup invoice_lookup stock_lookup
+# commerce_plane invoice_mutation paid_update status_update total_update
+# commerce_plane failure_mode missing_invoice invalid_amount negative_quantity
+# commerce_plane design_note keep_invoice_math_separate_from_gateway_side_effects
+# commerce_plane design_note keep_idempotency_visible_across_retries
+# commerce_plane design_note return_gateway_status_without_double_recording_attempts
+# commerce_plane design_note make_discount_capping_explainable_in_tests
+# commerce_plane design_note preserve_audit_events_for_payment_failures
+

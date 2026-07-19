@@ -15,3 +15,6 @@ venv/
 # Context Engineering runtime
 .context-eng/
 benchmarks/results/
+
+# Generated ML training data (rebuild via scripts/)
+ml/data/
