@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from benchmarks.compare import aggregate, load_queries, run_benchmark
+from benchmarks.compare import aggregate, benchmark_config, load_queries, run_benchmark
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _WORKSPACE = _REPO_ROOT / "benchmarks" / "fixture_repo"
@@ -24,9 +24,10 @@ MAX_P90_LATENCY_MS = 3000.0
 
 @pytest.fixture(scope="module")
 def results():
+    cfg = benchmark_config(_WORKSPACE)
     queries = load_queries(_QUERIES)
-    reports = run_benchmark(_WORKSPACE, queries)
-    return reports, aggregate(reports)
+    reports = run_benchmark(_WORKSPACE, queries, config=cfg)
+    return reports, aggregate(reports, model_path=cfg.ml_model_path)
 
 
 @pytest.mark.benchmark
@@ -49,7 +50,9 @@ def test_p90_latency(results):
 @pytest.mark.benchmark
 def test_reproducible(results):
     """A second run should produce the same median reduction (deterministic)."""
+    cfg = benchmark_config(_WORKSPACE)
     queries = load_queries(_QUERIES)
-    agg2 = aggregate(run_benchmark(_WORKSPACE, queries))
+    agg2 = aggregate(run_benchmark(_WORKSPACE, queries, config=cfg))
     _, agg1 = results
     assert abs(agg1["median_reduction_pct"] - agg2["median_reduction_pct"]) < 5.0
+    assert "budget_rf_swebench.joblib" in str(agg1.get("ml_model_path", ""))

@@ -27,6 +27,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_WORKSPACE = _REPO_ROOT / "benchmarks" / "fixture_repo"
 _DEFAULT_QUERIES = _REPO_ROOT / "benchmarks" / "queries.yaml"
 _DEFAULT_OUTPUT = _REPO_ROOT / "benchmarks" / "results" / "latest"
+# Benchmark defaults to the SWE-bench Lite–trained budget RF.
+_DEFAULT_MODEL = _REPO_ROOT / "ml" / "models" / "budget_rf_swebench.joblib"
 
 
 @dataclass
@@ -40,12 +42,24 @@ class QueryReport:
     inferred_files: list[str]
 
 
+def benchmark_config(
+    workspace: Path,
+    *,
+    model_path: Path | None = None,
+) -> Config:
+    """Config for benchmark runs; points RF budget at the SWE-bench model."""
+    return Config(
+        workspace_root=workspace.resolve(),
+        ml_model_path=(model_path or _DEFAULT_MODEL).resolve(),
+    )
+
+
 def run_benchmark(
     workspace: Path,
     queries: list[dict],
     config: Config | None = None,
 ) -> list[QueryReport]:
-    cfg = config or Config(workspace_root=workspace.resolve())
+    cfg = config or benchmark_config(workspace)
     engine = ContextEngine(config=cfg)
 
     reports: list[QueryReport] = []
@@ -75,11 +89,11 @@ def run_benchmark(
     return reports
 
 
-def aggregate(reports: list[QueryReport]) -> dict:
+def aggregate(reports: list[QueryReport], *, model_path: Path | None = None) -> dict:
     reductions = [r.reduction_pct for r in reports]
     latencies = sorted(r.latency_ms for r in reports)
     p90_idx = max(0, int(len(latencies) * 0.9) - 1) if latencies else 0
-    return {
+    payload = {
         "query_count": len(reports),
         "median_reduction_pct": round(statistics.median(reductions), 1) if reductions else 0.0,
         "mean_reduction_pct": round(statistics.fmean(reductions), 1) if reductions else 0.0,
@@ -87,19 +101,28 @@ def aggregate(reports: list[QueryReport]) -> dict:
         "median_mcp_tokens": int(statistics.median(r.mcp_tokens for r in reports)) if reports else 0,
         "p90_latency_ms": latencies[p90_idx] if latencies else 0.0,
     }
+    if model_path is not None:
+        payload["ml_model_path"] = str(model_path)
+    return payload
 
 
 def _format_markdown(reports: list[QueryReport], agg: dict) -> str:
     lines = [
         "# Context Engineering MCP - Benchmark Report",
         "",
-        f"Queries: {agg['query_count']}  |  "
-        f"Median reduction: {agg['median_reduction_pct']}%  |  "
-        f"p90 latency: {agg['p90_latency_ms']} ms",
-        "",
-        "| Query | Intent | Baseline | MCP | Reduction | Inferred files |",
-        "|-------|--------|---------:|----:|----------:|:--------------|",
     ]
+    if agg.get("ml_model_path"):
+        lines.extend([f"Model: `{agg['ml_model_path']}`", ""])
+    lines.extend(
+        [
+            f"Queries: {agg['query_count']}  |  "
+            f"Median reduction: {agg['median_reduction_pct']}%  |  "
+            f"p90 latency: {agg['p90_latency_ms']} ms",
+            "",
+            "| Query | Intent | Baseline | MCP | Reduction | Inferred files |",
+            "|-------|--------|---------:|----:|----------:|:--------------|",
+        ]
+    )
     for r in reports:
         lines.append(
             f"| {r.id} | {r.intent} | {r.baseline_tokens:,} | {r.mcp_tokens:,} | "
@@ -136,9 +159,10 @@ def evaluate(
     output: Path,
     config: Config | None = None,
 ) -> dict:
+    cfg = config or benchmark_config(workspace)
     queries = load_queries(queries_path)
-    reports = run_benchmark(workspace, queries, config=config)
-    agg = aggregate(reports)
+    reports = run_benchmark(workspace, queries, config=cfg)
+    agg = aggregate(reports, model_path=cfg.ml_model_path)
     write_reports(reports, agg, output)
     return agg
 
@@ -148,9 +172,16 @@ def main() -> None:
     parser.add_argument("--workspace", type=Path, default=_DEFAULT_WORKSPACE)
     parser.add_argument("--queries", type=Path, default=_DEFAULT_QUERIES)
     parser.add_argument("--output", type=Path, default=_DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--model-path",
+        type=Path,
+        default=_DEFAULT_MODEL,
+        help="RF budget model joblib (default: ml/models/budget_rf_swebench.joblib)",
+    )
     args = parser.parse_args()
 
-    agg = evaluate(args.workspace, args.queries, args.output)
+    cfg = benchmark_config(args.workspace, model_path=args.model_path)
+    agg = evaluate(args.workspace, args.queries, args.output, config=cfg)
 
     print("Context Engineering MCP - Benchmark Summary")
     print("-" * 44)
