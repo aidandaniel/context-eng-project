@@ -58,5 +58,12 @@ exclude = ["tests*"]
 context_eng = ["py.typed"]
 
 [tool.pytest.ini_options]
+markers = [
+    "benchmark: end-to-end token-reduction benchmark gate (may be slower)",
+]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
+
+[project.scripts]
+# keep context-eng-mcp above; benchmark entry is registered when benchmarks package is present
+

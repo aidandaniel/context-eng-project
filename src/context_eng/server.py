@@ -45,6 +45,22 @@ def _track_bundle(engine: ContextEngine, bundle_id: str) -> None:
     _bundle_owners[bundle_id] = engine
 
 
+def _tool_error(exc: BaseException) -> dict:
+    """Structured error payload for MCP tools (never re-raise from entrypoints)."""
+    return {"error": str(exc), "error_type": type(exc).__name__}
+
+
+# Explicit names kept for clarity; Exception covers the rest.
+_TOOL_EXCEPTIONS = (
+    PermissionError,
+    FileNotFoundError,
+    NotADirectoryError,
+    ValueError,
+    OSError,
+    Exception,
+)
+
+
 def _prepare_context(
     query: str,
     max_tokens: Optional[int] = None,
@@ -52,18 +68,21 @@ def _prepare_context(
     workspace_root: Optional[str] = None,
 ) -> dict:
     """Analyze a query and return a ready-to-use context bundle."""
-    engine = get_engine(workspace_root)
-    bundle = engine.get_context_bundle(query, max_tokens, intent)
-    analysis = engine.analysis_for_bundle(bundle.bundle_id) or engine.analyze_query(query)
-    _track_bundle(engine, bundle.bundle_id)
-    workspace = str(engine.config.workspace_root)
-    return {
-        "query": query,
-        "workspace_root": workspace,
-        "analysis": analysis.model_dump(),
-        "bundle": bundle.model_dump(),
-        "formatted_context": format_context_message(query, analysis, bundle, workspace),
-    }
+    try:
+        engine = get_engine(workspace_root)
+        bundle = engine.get_context_bundle(query, max_tokens, intent)
+        analysis = engine.analysis_for_bundle(bundle.bundle_id) or engine.analyze_query(query)
+        _track_bundle(engine, bundle.bundle_id)
+        workspace = str(engine.config.workspace_root)
+        return {
+            "query": query,
+            "workspace_root": workspace,
+            "analysis": analysis.model_dump(),
+            "bundle": bundle.model_dump(),
+            "formatted_context": format_context_message(query, analysis, bundle, workspace),
+        }
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 @mcp.tool(
@@ -87,7 +106,10 @@ def prepare_context(
     all chunks. Use ``expand_context`` with the returned ``bundle.bundle_id`` only
     if the initial pack is insufficient.
     """
-    return _prepare_context(query, max_tokens, intent, workspace_root)
+    try:
+        return _prepare_context(query, max_tokens, intent, workspace_root)
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 @mcp.prompt(
@@ -100,9 +122,14 @@ def context_prompt(
     workspace_root: Optional[str] = None,
 ) -> str:
     """Slash command: analyze the query and inject a budgeted context pack."""
-    task = query.strip() or "Explore this codebase and summarize the main modules."
-    result = _prepare_context(task, workspace_root=workspace_root)
-    return result["formatted_context"]
+    try:
+        task = query.strip() or "Explore this codebase and summarize the main modules."
+        result = _prepare_context(task, workspace_root=workspace_root)
+        if "error" in result:
+            return f"Error preparing context: {result['error']}"
+        return result["formatted_context"]
+    except _TOOL_EXCEPTIONS as exc:
+        return f"Error preparing context: {exc}"
 
 
 @mcp.tool(
@@ -127,10 +154,13 @@ def analyze_query(
     Returns intent, confidence, extracted signals (mentioned files/symbols,
     stack-trace detection), and a recommended/min/max token budget.
     """
-    engine = get_engine(workspace_root)
-    result = engine.analyze_query(query).model_dump()
-    result["workspace_root"] = str(engine.config.workspace_root)
-    return result
+    try:
+        engine = get_engine(workspace_root)
+        result = engine.analyze_query(query).model_dump()
+        result["workspace_root"] = str(engine.config.workspace_root)
+        return result
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 @mcp.tool(
@@ -161,12 +191,15 @@ def get_context_bundle(
     mentioned files/symbols are always included. Use the returned ``bundle_id``
     with ``expand_context`` if you need more.
     """
-    engine = get_engine(workspace_root)
-    bundle = engine.get_context_bundle(query, max_tokens, intent)
-    _track_bundle(engine, bundle.bundle_id)
-    result = bundle.model_dump()
-    result["workspace_root"] = str(engine.config.workspace_root)
-    return result
+    try:
+        engine = get_engine(workspace_root)
+        bundle = engine.get_context_bundle(query, max_tokens, intent)
+        _track_bundle(engine, bundle.bundle_id)
+        result = bundle.model_dump()
+        result["workspace_root"] = str(engine.config.workspace_root)
+        return result
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 @mcp.tool(
@@ -189,16 +222,16 @@ def expand_context(
     bundle was insufficient. ``workspace_root`` is not required here; the bundle
     is looked up by ``bundle_id``.
     """
-    engine = _engine_for_bundle(bundle_id)
-    if engine is None:
-        return {"error": f"unknown bundle_id: {bundle_id}"}
     try:
+        engine = _engine_for_bundle(bundle_id)
+        if engine is None:
+            return {"error": f"unknown bundle_id: {bundle_id}"}
         bundle = engine.expand_context(bundle_id, focus, extra_tokens)
         result = bundle.model_dump()
         result["workspace_root"] = str(engine.config.workspace_root)
         return result
-    except KeyError as exc:
-        return {"error": str(exc)}
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 @mcp.tool(
@@ -214,12 +247,19 @@ def estimate_tokens(
     bundle_id: Optional[str] = None,
 ) -> dict:
     """Estimate tokens for arbitrary text, or for a previously built bundle."""
-    if bundle_id:
-        engine = _engine_for_bundle(bundle_id)
-        if engine is None:
-            return {"tokens": 0, "method": "unknown", "error": f"unknown bundle_id: {bundle_id}"}
-        return engine.estimate_bundle_tokens(bundle_id).model_dump()
-    return get_engine().estimate_tokens(text or "").model_dump()
+    try:
+        if bundle_id:
+            engine = _engine_for_bundle(bundle_id)
+            if engine is None:
+                return {
+                    "tokens": 0,
+                    "method": "unknown",
+                    "error": f"unknown bundle_id: {bundle_id}",
+                }
+            return engine.estimate_bundle_tokens(bundle_id).model_dump()
+        return get_engine().estimate_tokens(text or "").model_dump()
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 def main() -> None:

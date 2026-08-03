@@ -69,3 +69,19 @@ def test_get_searchable_files_returns_absolute_paths(tmp_path: Path):
     assert len(paths) == 1
     assert paths[0].is_absolute()
     assert paths[0].name == "handler.py"
+
+
+def test_get_manifest_rebuilds_when_new_file_added(tmp_path: Path):
+    (tmp_path / "a.py").write_text("a = 1\n", encoding="utf-8")
+    cfg = _config(tmp_path)
+    first = get_manifest(tmp_path, cfg)
+    assert first.file_count == 1
+    assert {e.rel_path for e in first.entries} == {"a.py"}
+
+    (tmp_path / "b.py").write_text("b = 2\n", encoding="utf-8")
+    rebuilt = get_manifest(tmp_path, cfg)
+    assert rebuilt.file_count == 2
+    assert {e.rel_path for e in rebuilt.entries} == {"a.py", "b.py"}
+
+    paths = get_searchable_files(tmp_path, cfg)
+    assert {p.name for p in paths} == {"a.py", "b.py"}

@@ -22,6 +22,9 @@ DEFAULT_IGNORE_GLOBS: tuple[str, ...] = (
     ".mypy_cache",
     ".pytest_cache",
     ".context-eng",
+    "secrets",
+    ".aws",
+    ".ssh",
 )
 
 # Intent -> (recommended, min, max) token budgets.

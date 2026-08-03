@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from context_eng.config import Config
-from context_eng.workspace import TEXT_EXTENSIONS, _MAX_FILE_BYTES, _is_ignored, relpath
+from context_eng.workspace import (
+    TEXT_EXTENSIONS,
+    _MAX_FILE_BYTES,
+    _is_ignored,
+    is_secret_path,
+    relpath,
+)
 
 _MANIFEST_VERSION = 1
 
@@ -76,6 +82,27 @@ def manifest_path(workspace: Path) -> Path:
     return workspace.resolve() / ".context-eng" / "manifest.json"
 
 
+def contained_path(workspace: Path, rel_path: str) -> Path | None:
+    """Resolve ``rel_path`` under ``workspace`` only if it stays contained.
+
+    Rejects absolute paths and ``..`` (or symlink) escapes. Returns the
+    resolved path on success, otherwise ``None``.
+    """
+    if not rel_path:
+        return None
+    candidate = Path(rel_path)
+    if candidate.is_absolute():
+        return None
+    ws = workspace.resolve()
+    try:
+        resolved = (ws / candidate).resolve()
+    except (OSError, RuntimeError):
+        return None
+    if not resolved.is_relative_to(ws):
+        return None
+    return resolved
+
+
 def _count_lines_quick(path: Path) -> int:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -84,6 +111,32 @@ def _count_lines_quick(path: Path) -> int:
     if not text:
         return 0
     return text.count("\n") + 1
+
+
+def _searchable_rel_paths(workspace: Path, config: Config) -> set[str]:
+    """Lightweight rescan of searchable relative paths (no line counting)."""
+    workspace = workspace.resolve()
+    found: set[str] = set()
+    for path in workspace.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in TEXT_EXTENSIONS:
+            continue
+        if is_secret_path(path):
+            continue
+        try:
+            rel = path.relative_to(workspace)
+        except ValueError:
+            continue
+        if _is_ignored(rel.parts, config.ignore_globs):
+            continue
+        try:
+            if path.stat().st_size > _MAX_FILE_BYTES:
+                continue
+        except OSError:
+            continue
+        found.add(rel.as_posix())
+    return found
 
 
 def build_manifest(workspace: Path, config: Config) -> WorkspaceManifest:
@@ -96,6 +149,8 @@ def build_manifest(workspace: Path, config: Config) -> WorkspaceManifest:
         if not path.is_file():
             continue
         if path.suffix.lower() not in TEXT_EXTENSIONS:
+            continue
+        if is_secret_path(path):
             continue
         rel = path.relative_to(workspace)
         if _is_ignored(rel.parts, config.ignore_globs):
@@ -138,16 +193,21 @@ def _load_manifest_file(workspace: Path) -> WorkspaceManifest | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    return WorkspaceManifest.from_dict(data)
+    manifest = WorkspaceManifest.from_dict(data)
+    ws = workspace.resolve()
+    # Fail closed: discard cache if any entry escapes the workspace.
+    if any(contained_path(ws, entry.rel_path) is None for entry in manifest.entries):
+        return None
+    return manifest
 
 
-def _is_stale(manifest: WorkspaceManifest, workspace: Path) -> bool:
+def _is_stale(manifest: WorkspaceManifest, workspace: Path, config: Config) -> bool:
     if manifest.workspace_root != workspace.resolve().as_posix():
         return True
     ws = workspace.resolve()
     for entry in manifest.entries:
-        path = ws / entry.rel_path
-        if not path.is_file():
+        path = contained_path(ws, entry.rel_path)
+        if path is None or not path.is_file():
             return True
         try:
             stat = path.stat()
@@ -155,6 +215,11 @@ def _is_stale(manifest: WorkspaceManifest, workspace: Path) -> bool:
             return True
         if stat.st_mtime_ns != entry.mtime_ns or stat.st_size != entry.size:
             return True
+    # Detect newly added (or renamed) searchable files.
+    disk_paths = _searchable_rel_paths(ws, config)
+    manifest_paths = {entry.rel_path for entry in manifest.entries}
+    if disk_paths != manifest_paths:
+        return True
     return False
 
 
@@ -163,7 +228,7 @@ def get_manifest(workspace: Path, config: Config, *, rebuild: bool = False) -> W
     workspace = workspace.resolve()
     if not rebuild and config.manifest_auto_build:
         cached = _load_manifest_file(workspace)
-        if cached is not None and not _is_stale(cached, workspace):
+        if cached is not None and not _is_stale(cached, workspace, config):
             return cached
     manifest = build_manifest(workspace, config)
     if config.manifest_auto_build:
@@ -175,7 +240,12 @@ def get_searchable_files(workspace: Path, config: Config) -> list[Path]:
     """Absolute paths of searchable text files (manifest-backed)."""
     workspace = workspace.resolve()
     manifest = get_manifest(workspace, config)
-    return [workspace / entry.rel_path for entry in manifest.entries]
+    paths: list[Path] = []
+    for entry in manifest.entries:
+        path = contained_path(workspace, entry.rel_path)
+        if path is not None:
+            paths.append(path)
+    return paths
 
 
 def repo_stats_from_manifest(manifest: WorkspaceManifest) -> tuple[int, float]:
