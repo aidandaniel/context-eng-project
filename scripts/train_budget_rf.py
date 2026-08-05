@@ -3,7 +3,7 @@
 Example:
   python scripts/train_budget_rf.py \\
     --data ml/data/swebench_lite_budget.jsonl \\
-    --out ml/models/budget_rf_swebench.joblib
+    --out src/context_eng/ml/models/budget_rf_swebench.joblib
 """
 
 from __future__ import annotations
@@ -42,8 +42,15 @@ def main() -> int:
     parser.add_argument(
         "--out",
         type=Path,
-        default=_ROOT / "ml" / "models" / "budget_rf_swebench.joblib",
-        help="Output joblib path",
+        default=(
+            _ROOT
+            / "src"
+            / "context_eng"
+            / "ml"
+            / "models"
+            / "budget_rf_swebench.joblib"
+        ),
+        help="Output joblib path (packaged under context_eng.ml.models)",
     )
     parser.add_argument("--n-estimators", type=int, default=200)
     parser.add_argument("--max-depth", type=int, default=12)

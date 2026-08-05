@@ -9,10 +9,8 @@ from pathlib import Path
 from context_eng.config import Config
 from context_eng.ml.budget_model import RandomForestBudgetModel, snap_to_bucket
 from context_eng.ml.features import extract_features
+from context_eng.ml.model_paths import DEFAULT_MODEL_NAME, packaged_model_path
 from context_eng.models import QueryAnalysis
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_DEFAULT_MODEL = _REPO_ROOT / "ml" / "models" / "budget_rf_v2.joblib"
 
 
 @dataclass(frozen=True)
@@ -31,7 +29,7 @@ def _load_budget_model(model_path: str) -> RandomForestBudgetModel:
 def default_model_path(config: Config) -> Path:
     if config.ml_model_path is not None:
         return Path(config.ml_model_path)
-    return _DEFAULT_MODEL
+    return packaged_model_path(DEFAULT_MODEL_NAME)
 
 
 def rf_budget(query: str, analysis: QueryAnalysis, config: Config) -> int:

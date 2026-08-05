@@ -55,7 +55,7 @@ flowchart LR
 1. **Index** — cached `.context-eng/manifest.json` avoids full-tree scans each query.
 2. **Retrieve** — ripgrep when available (Python scan fallback); optional embeddings merge semantic hits.
 3. **Discover anchors** — infer must-include files from query + repo; auto-fit raises the budget bucket if anchors won't fit.
-4. **Budget** — RF model (`ml/models/budget_rf_v2.joblib`) picks a token ceiling.
+4. **Budget** — RF model (`context_eng/ml/models/budget_rf_v2.joblib`) picks a token ceiling.
 5. **Pack** — rank chunks, apply adaptive optional-chunk cap, greedy pack under ceiling.
 6. **Output** — `ContextBundle` via `prepare_context` / `/context`.
 
@@ -149,13 +149,12 @@ src/context_eng/
   index/              # manifest.json cache
   retrieval/          # grep, optional embeddings, CompositeRetriever
   anchors/            # discover_anchor_paths, auto-fit budget
-  ml/                 # RF budget model (engine_budget, features)
+  ml/                 # RF budget code + packaged models/*.joblib
   ranking/            # ChunkRanker
   packing/            # adaptive optional-chunk cap
   budget/             # BudgetPolicy pack
   intent/             # query analysis (RF features)
   tokens/             # token estimator
   formatting.py       # formatted_context for agents
-ml/models/            # budget_rf_v2.joblib (trained artifact)
 tests/                # unit tests
 ```

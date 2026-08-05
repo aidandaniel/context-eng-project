@@ -64,7 +64,7 @@ class Config:
     max_optional_chunks_upper: int = 4
     max_optional_chunks_floor: int = 1
     events_path: Path | None = None
-    # ``rf`` uses ``budget_rf_v2.joblib`` (default); ``intent`` is legacy and ignored at runtime.
+    # ``rf`` uses packaged ``budget_rf_v2.joblib`` (default); ``intent`` is legacy/ignored.
     budget_source: str = "rf"
     ml_model_path: Path | None = None
     enable_embedding_retriever: bool = False
