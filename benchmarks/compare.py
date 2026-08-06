@@ -22,14 +22,14 @@ from benchmarks.query_loader import load_queries
 from benchmarks.run_mcp import run_mcp
 from context_eng.config import Config
 from context_eng.engine import ContextEngine
-from context_eng.ml.model_paths import SWEBENCH_MODEL_NAME, packaged_model_path
+from context_eng.ml.model_paths import SWEBENCH_MODEL_NAME, resolve_trusted_model_path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_WORKSPACE = _REPO_ROOT / "benchmarks" / "fixture_repo"
 _DEFAULT_QUERIES = _REPO_ROOT / "benchmarks" / "queries.yaml"
 _DEFAULT_OUTPUT = _REPO_ROOT / "benchmarks" / "results" / "latest"
-# Benchmark defaults to the SWE-bench Lite–trained budget RF (packaged).
-_DEFAULT_MODEL = packaged_model_path(SWEBENCH_MODEL_NAME)
+# Benchmark defaults to the SWE-bench Lite–trained budget RF (packaged + pinned).
+_DEFAULT_MODEL = resolve_trusted_model_path(SWEBENCH_MODEL_NAME)
 
 
 @dataclass
