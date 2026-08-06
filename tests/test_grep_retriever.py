@@ -52,12 +52,16 @@ def test_ripgrep_path_when_available(tmp_path: Path):
     config = Config(workspace_root=tmp_path, manifest_auto_build=True)
     fake_hits = {"service.py": [1]}
     with mock.patch.object(gr, "rg_available", return_value=True):
-        with mock.patch.object(gr, "_ripgrep_file_hits", return_value=fake_hits) as rg_hits:
-            with mock.patch.object(gr, "_python_file_hits") as py_hits:
-                hits = GrepRetriever(config).search("alpha_handler", tmp_path, limit=5)
+        with mock.patch.object(
+            gr, "_ripgrep_file_hits", return_value=(fake_hits, True)
+        ) as rg_hits:
+            with mock.patch.object(gr, "_python_scan_hits") as py_hits:
+                retriever = GrepRetriever(config)
+                hits = retriever.search("alpha_handler", tmp_path, limit=5)
     rg_hits.assert_called_once()
     py_hits.assert_not_called()
     assert hits and hits[0].path == "service.py"
+    assert retriever.last_degraded is False
 
 
 def test_python_fallback_when_rg_missing(tmp_path: Path):
@@ -68,3 +72,14 @@ def test_python_fallback_when_rg_missing(tmp_path: Path):
             hits = GrepRetriever(config).search("beta_handler", tmp_path, limit=5)
     rg_hits.assert_not_called()
     assert any(h.path == "beta.py" for h in hits)
+
+
+def test_rg_failure_falls_back_and_marks_degraded(tmp_path: Path):
+    (tmp_path / "gamma.py").write_text("gamma_handler = 1\n", encoding="utf-8")
+    config = Config(workspace_root=tmp_path, manifest_auto_build=True)
+    with mock.patch.object(gr, "rg_available", return_value=True):
+        with mock.patch.object(gr, "_ripgrep_file_hits", return_value=({}, False)):
+            retriever = GrepRetriever(config)
+            hits = retriever.search("gamma_handler", tmp_path, limit=5)
+    assert any(h.path == "gamma.py" for h in hits)
+    assert retriever.last_degraded is True

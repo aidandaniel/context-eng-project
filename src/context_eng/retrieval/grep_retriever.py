@@ -12,6 +12,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from context_eng.config import Config
@@ -96,33 +97,23 @@ def _python_file_hits(
     return hit_lines
 
 
-def _ripgrep_file_hits(
-    files: list[Path], keywords: list[str], workspace: Path
+def _python_scan_hits(
+    files: list[Path],
+    patterns: list[tuple[str, re.Pattern[str]]],
+    workspace: Path,
 ) -> dict[str, list[int]]:
-    """Run ripgrep once and return {rel_path: [1-based line numbers]}."""
-    if not files or not keywords:
-        return {}
-    args = ["rg", "--json", "--line-number", "--no-heading", "--fixed-strings"]
-    for kw in keywords:
-        args.extend(["-e", kw])
-    args.extend(str(path) for path in files)
-    try:
-        proc = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-    except OSError:
-        return {}
-    if proc.returncode not in (0, 1):
-        return {}
+    hits: dict[str, list[int]] = {}
+    for path in files:
+        hit_lines = _python_file_hits(path, patterns)
+        if hit_lines:
+            hits[relpath(path, workspace)] = hit_lines
+    return hits
 
+
+def _parse_rg_json(stdout: str, workspace: Path) -> dict[str, list[int]]:
     workspace = workspace.resolve()
     hits: dict[str, list[int]] = {}
-    for line in proc.stdout.splitlines():
+    for line in stdout.splitlines():
         if not line.strip():
             continue
         try:
@@ -139,6 +130,60 @@ def _ripgrep_file_hits(
         rel = relpath(Path(raw_path), workspace)
         hits.setdefault(rel, []).append(line_no)
     return hits
+
+
+def _ripgrep_file_hits(
+    files: list[Path],
+    keywords: list[str],
+    workspace: Path,
+    *,
+    timeout_seconds: float = 30.0,
+) -> tuple[dict[str, list[int]], bool]:
+    """Run ripgrep once via ``--files-from``.
+
+    Returns ``(hits, ok)``. ``ok`` is False on timeout, spawn failure, or
+    unexpected exit codes so callers can fall back to a Python scan.
+    """
+    if not files or not keywords:
+        return {}, True
+    list_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", suffix=".txt", delete=False
+        ) as fh:
+            for path in files:
+                fh.write(f"{path.resolve()}\n")
+            list_path = Path(fh.name)
+        args = [
+            "rg",
+            "--json",
+            "--line-number",
+            "--no-heading",
+            "--fixed-strings",
+            "--files-from",
+            str(list_path),
+        ]
+        for kw in keywords:
+            args.extend(["-e", kw])
+        proc = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=timeout_seconds,
+            cwd=str(workspace.resolve()),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}, False
+    finally:
+        if list_path is not None:
+            list_path.unlink(missing_ok=True)
+
+    if proc.returncode not in (0, 1):
+        return {}, False
+    return _parse_rg_json(proc.stdout, workspace), True
 
 
 def _chunks_from_hits(
@@ -176,10 +221,12 @@ class GrepRetriever:
 
     def __init__(self, config: Config):
         self.config = config
+        self.last_degraded = False
 
     def search(
         self, query: str, workspace: Path, limit: int
     ) -> list[CandidateChunk]:
+        self.last_degraded = False
         keywords = extract_keywords(query)
         if not keywords:
             return []
@@ -187,34 +234,30 @@ class GrepRetriever:
         context = self.config.grep_context_lines
         workspace = workspace.resolve()
         files = get_searchable_files(workspace, self.config)
+        timeout = float(getattr(self.config, "rg_timeout_seconds", 30.0))
+
+        hit_map: dict[str, list[int]] = {}
+        if rg_available():
+            hit_map, ok = _ripgrep_file_hits(
+                files, keywords, workspace, timeout_seconds=timeout
+            )
+            if not ok:
+                self.last_degraded = True
+                hit_map = _python_scan_hits(files, patterns, workspace)
+        else:
+            hit_map = _python_scan_hits(files, patterns, workspace)
 
         candidates: list[CandidateChunk] = []
-        if rg_available():
-            for rel, hit_lines in _ripgrep_file_hits(files, keywords, workspace).items():
-                candidates.extend(
-                    _chunks_from_hits(
-                        rel_path=rel,
-                        hit_lines=hit_lines,
-                        workspace=workspace,
-                        patterns=patterns,
-                        context=context,
-                    )
+        for rel, hit_lines in hit_map.items():
+            candidates.extend(
+                _chunks_from_hits(
+                    rel_path=rel,
+                    hit_lines=hit_lines,
+                    workspace=workspace,
+                    patterns=patterns,
+                    context=context,
                 )
-        else:
-            for path in files:
-                hit_lines = _python_file_hits(path, patterns)
-                if not hit_lines:
-                    continue
-                rel = relpath(path, workspace)
-                candidates.extend(
-                    _chunks_from_hits(
-                        rel_path=rel,
-                        hit_lines=hit_lines,
-                        workspace=workspace,
-                        patterns=patterns,
-                        context=context,
-                    )
-                )
+            )
 
         candidates.sort(key=lambda c: (-c.keyword_match, c.path, c.start_line))
         return candidates[:limit]

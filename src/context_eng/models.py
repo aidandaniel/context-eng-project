@@ -87,6 +87,7 @@ class ContextBundle(BaseModel):
     bundle_id: str
     expansions: int = 0
     optional_chunks_used: int = 0
+    retrieval_degraded: bool = False
 
 
 class TokenEstimate(BaseModel):

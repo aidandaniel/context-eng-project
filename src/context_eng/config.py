@@ -76,6 +76,8 @@ class Config:
     # cannot grow without limit in a long-lived MCP process.
     max_cached_bundles: int = 32
     bundle_ttl_seconds: float = 1800.0
+    # Ripgrep subprocess timeout (H4); on failure we fall back to Python scan.
+    rg_timeout_seconds: float = 30.0
 
     @property
     def resolved_events_path(self) -> Path:
@@ -152,6 +154,8 @@ def load_config(workspace_root: str | None = None) -> Config:
         overrides["max_cached_bundles"] = int(section["max_cached_bundles"])
     if "bundle_ttl_seconds" in section:
         overrides["bundle_ttl_seconds"] = float(section["bundle_ttl_seconds"])
+    if "rg_timeout_seconds" in section:
+        overrides["rg_timeout_seconds"] = float(section["rg_timeout_seconds"])
     if "intent_budgets" in section:
         budgets = dict(DEFAULT_INTENT_BUDGETS)
         for intent, vals in section["intent_budgets"].items():
