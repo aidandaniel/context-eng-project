@@ -9,6 +9,7 @@ import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from context_eng.ignore import merge_ignore_globs
 from context_eng.workspace_resolve import resolve_workspace
 
 DEFAULT_IGNORE_GLOBS: tuple[str, ...] = (
@@ -103,7 +104,10 @@ def load_config(workspace_root: str | None = None) -> Config:
     overrides: dict[str, object] = {}
 
     if "ignore_globs" in section:
-        overrides["ignore_globs"] = tuple(section["ignore_globs"])
+        # Merge onto defaults so toml cannot drop .git/.venv protections.
+        overrides["ignore_globs"] = merge_ignore_globs(
+            DEFAULT_IGNORE_GLOBS, list(section["ignore_globs"])
+        )
     if "default_max_tokens" in section:
         overrides["default_max_tokens"] = int(section["default_max_tokens"])
     if "grep_context_lines" in section:
