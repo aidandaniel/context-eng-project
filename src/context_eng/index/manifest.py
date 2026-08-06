@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from dataclasses import dataclass
@@ -14,10 +15,10 @@ from context_eng.workspace import (
     _MAX_FILE_BYTES,
     _is_ignored,
     is_secret_path,
-    relpath,
 )
 
-_MANIFEST_VERSION = 1
+# v2 adds dir watermark + path-set hash so newly added files invalidate cache.
+_MANIFEST_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,9 @@ class WorkspaceManifest:
     version: int
     built_at: str
     entries: tuple[ManifestEntry, ...]
+    dir_watermark_ns: int = 0
+    path_set_hash: str = ""
+    entry_count: int = 0
 
     @property
     def file_count(self) -> int:
@@ -48,6 +52,9 @@ class WorkspaceManifest:
             "version": self.version,
             "workspace_root": self.workspace_root,
             "built_at": self.built_at,
+            "dir_watermark_ns": self.dir_watermark_ns,
+            "path_set_hash": self.path_set_hash,
+            "entry_count": self.entry_count or len(self.entries),
             "entries": [
                 {
                     "rel_path": e.rel_path,
@@ -72,9 +79,12 @@ class WorkspaceManifest:
         )
         return cls(
             workspace_root=str(data["workspace_root"]),
-            version=int(data.get("version", _MANIFEST_VERSION)),
+            version=int(data.get("version", 1)),
             built_at=str(data.get("built_at", "")),
             entries=entries,
+            dir_watermark_ns=int(data.get("dir_watermark_ns", 0)),
+            path_set_hash=str(data.get("path_set_hash", "")),
+            entry_count=int(data.get("entry_count", len(entries))),
         )
 
 
@@ -111,6 +121,39 @@ def _count_lines_quick(path: Path) -> int:
     if not text:
         return 0
     return text.count("\n") + 1
+
+
+def _path_set_hash(paths: set[str] | list[str]) -> str:
+    blob = "\n".join(sorted(paths)).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+def _dir_watermark_ns(workspace: Path, config: Config) -> int:
+    """Max directory mtime under workspace (respecting ignore_globs).
+
+    Creating/renaming a file typically updates its parent directory mtime, so
+    this detects path-set growth without reading file contents.
+    """
+    workspace = workspace.resolve()
+    watermark = 0
+    try:
+        watermark = workspace.stat().st_mtime_ns
+    except OSError:
+        pass
+    for path in workspace.rglob("*"):
+        if not path.is_dir():
+            continue
+        try:
+            rel = path.relative_to(workspace)
+        except ValueError:
+            continue
+        if _is_ignored(rel.parts, config.ignore_globs):
+            continue
+        try:
+            watermark = max(watermark, path.stat().st_mtime_ns)
+        except OSError:
+            continue
+    return watermark
 
 
 def _searchable_rel_paths(workspace: Path, config: Config) -> set[str]:
@@ -170,11 +213,15 @@ def build_manifest(workspace: Path, config: Config) -> WorkspaceManifest:
             )
         )
     entries.sort(key=lambda e: e.rel_path)
+    paths = {e.rel_path for e in entries}
     return WorkspaceManifest(
         workspace_root=workspace.as_posix(),
         version=_MANIFEST_VERSION,
         built_at=datetime.now(timezone.utc).isoformat(),
         entries=tuple(entries),
+        dir_watermark_ns=_dir_watermark_ns(workspace, config),
+        path_set_hash=_path_set_hash(paths),
+        entry_count=len(entries),
     )
 
 
@@ -201,9 +248,7 @@ def _load_manifest_file(workspace: Path) -> WorkspaceManifest | None:
     return manifest
 
 
-def _is_stale(manifest: WorkspaceManifest, workspace: Path, config: Config) -> bool:
-    if manifest.workspace_root != workspace.resolve().as_posix():
-        return True
+def _entries_stale(manifest: WorkspaceManifest, workspace: Path) -> bool:
     ws = workspace.resolve()
     for entry in manifest.entries:
         path = contained_path(ws, entry.rel_path)
@@ -215,12 +260,35 @@ def _is_stale(manifest: WorkspaceManifest, workspace: Path, config: Config) -> b
             return True
         if stat.st_mtime_ns != entry.mtime_ns or stat.st_size != entry.size:
             return True
-    # Detect newly added (or renamed) searchable files.
-    disk_paths = _searchable_rel_paths(ws, config)
-    manifest_paths = {entry.rel_path for entry in manifest.entries}
-    if disk_paths != manifest_paths:
-        return True
     return False
+
+
+def _is_stale(manifest: WorkspaceManifest, workspace: Path, config: Config) -> bool:
+    if manifest.version != _MANIFEST_VERSION:
+        return True
+    if manifest.workspace_root != workspace.resolve().as_posix():
+        return True
+    if _entries_stale(manifest, workspace):
+        return True
+
+    # Fast path: unchanged directory watermark + entry count ⇒ no path-set growth.
+    live_wm = _dir_watermark_ns(workspace, config)
+    expected_count = manifest.entry_count or len(manifest.entries)
+    if (
+        live_wm == manifest.dir_watermark_ns
+        and expected_count == len(manifest.entries)
+        and manifest.path_set_hash
+    ):
+        return False
+
+    # Directory churn or missing hash: compare searchable path set.
+    disk_paths = _searchable_rel_paths(workspace.resolve(), config)
+    if len(disk_paths) != expected_count:
+        return True
+    if manifest.path_set_hash:
+        return _path_set_hash(disk_paths) != manifest.path_set_hash
+    manifest_paths = {entry.rel_path for entry in manifest.entries}
+    return disk_paths != manifest_paths
 
 
 def get_manifest(workspace: Path, config: Config, *, rebuild: bool = False) -> WorkspaceManifest:
