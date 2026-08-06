@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 
 from context_eng.config import Config
+from context_eng.ml.repo_stats import repo_stats
 from context_eng.models import Intent, QueryAnalysis
-from context_eng.workspace import iter_files, read_text
 
 INTENT_COLUMNS = [
     "intent_debug",
@@ -36,21 +35,6 @@ BASE_FEATURE_NAMES = [
 FEATURE_NAMES = BASE_FEATURE_NAMES + INTENT_COLUMNS
 
 
-def repo_stats(config: Config) -> tuple[int, float]:
-    """Walk workspace (respecting ignore_globs), return (file_count, log10(loc+1))."""
-    workspace = Path(config.workspace_root).resolve()
-    file_count = 0
-    total_lines = 0
-    for path in iter_files(workspace, config.ignore_globs):
-        file_count += 1
-        try:
-            text = read_text(path)
-        except OSError:
-            continue
-        total_lines += text.count("\n") + (1 if text else 0)
-    return file_count, math.log10(total_lines + 1)
-
-
 def _intent_one_hot(intent: Intent) -> dict[str, int]:
     active = f"intent_{intent.value}"
     return {col: (1 if col == active else 0) for col in INTENT_COLUMNS}
@@ -63,11 +47,22 @@ def extract_features(
     *,
     discovered_anchor_count: int = 0,
     must_include_token_estimate: int = 0,
+    repo_file_count: int | None = None,
+    repo_loc_log: float | None = None,
 ) -> dict[str, float | int]:
-    """Flat feature dict for ML. Values come from ``analysis`` and ``config``."""
+    """Flat feature dict for ML. Values come from ``analysis`` and ``config``.
+
+    Optional ``repo_file_count`` / ``repo_loc_log`` override workspace walks so
+    offline label pipelines (e.g. SWE-bench) can supply proxies.
+    """
     _ = query  # API symmetry for label gen; v1 reads analysis only
     signals = analysis.signals
-    file_count, loc_log = repo_stats(config)
+    if repo_file_count is None or repo_loc_log is None:
+        walked_count, walked_loc = repo_stats(config)
+        if repo_file_count is None:
+            repo_file_count = walked_count
+        if repo_loc_log is None:
+            repo_loc_log = walked_loc
     retrieval_signals = (
         len(signals.mentioned_files)
         + len(signals.mentioned_symbols)
@@ -83,8 +78,8 @@ def extract_features(
         "has_error_token": int(signals.has_error_token),
         "intent_confidence": analysis.confidence,
         "intent_budget": analysis.budget.recommended,
-        "repo_file_count": file_count,
-        "repo_loc_log": loc_log,
+        "repo_file_count": repo_file_count,
+        "repo_loc_log": repo_loc_log,
         "discovered_anchor_count": discovered_anchor_count,
         "must_include_token_estimate": must_include_token_estimate,
     }

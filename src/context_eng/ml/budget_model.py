@@ -116,8 +116,11 @@ class RandomForestBudgetModel:
 
     @classmethod
     def load(cls, path: str | Path) -> "RandomForestBudgetModel":
+        from context_eng.ml.model_paths import verify_model_file
+
+        trusted = verify_model_file(Path(path))
         joblib = _require_joblib()
-        payload = joblib.load(path)
+        payload = joblib.load(trusted)
         return cls(
             classifier=payload["classifier"],
             feature_names=list(payload["feature_names"]),

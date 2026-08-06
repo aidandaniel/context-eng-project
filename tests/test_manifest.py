@@ -45,7 +45,9 @@ def test_save_and_load_manifest_roundtrip(tmp_path: Path):
     loaded = get_manifest(tmp_path, cfg, rebuild=False)
     assert loaded.file_count == built.file_count
     assert loaded.workspace_root == built.workspace_root
-    assert data["version"] == 1
+    assert data["version"] == 2
+    assert data["path_set_hash"]
+    assert data["entry_count"] == built.file_count
 
 
 def test_get_manifest_rebuilds_when_stale(tmp_path: Path):
@@ -69,3 +71,45 @@ def test_get_searchable_files_returns_absolute_paths(tmp_path: Path):
     assert len(paths) == 1
     assert paths[0].is_absolute()
     assert paths[0].name == "handler.py"
+
+
+def test_get_manifest_rebuilds_when_new_file_added(tmp_path: Path):
+    (tmp_path / "a.py").write_text("a = 1\n", encoding="utf-8")
+    cfg = _config(tmp_path)
+    first = get_manifest(tmp_path, cfg)
+    assert first.file_count == 1
+    assert {e.rel_path for e in first.entries} == {"a.py"}
+
+    (tmp_path / "b.py").write_text("b = 2\n", encoding="utf-8")
+    rebuilt = get_manifest(tmp_path, cfg)
+    assert rebuilt.file_count == 2
+    assert {e.rel_path for e in rebuilt.entries} == {"a.py", "b.py"}
+
+    paths = get_searchable_files(tmp_path, cfg)
+    assert {p.name for p in paths} == {"a.py", "b.py"}
+
+
+def test_v1_manifest_without_watermark_rebuilds(tmp_path: Path):
+    (tmp_path / "a.py").write_text("a = 1\n", encoding="utf-8")
+    cfg = _config(tmp_path)
+    # Seed a legacy v1 cache missing watermark/hash metadata.
+    legacy = {
+        "version": 1,
+        "workspace_root": tmp_path.resolve().as_posix(),
+        "built_at": "old",
+        "entries": [
+            {
+                "rel_path": "a.py",
+                "mtime_ns": (tmp_path / "a.py").stat().st_mtime_ns,
+                "size": (tmp_path / "a.py").stat().st_size,
+                "line_count": 1,
+            }
+        ],
+    }
+    path = manifest_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    loaded = get_manifest(tmp_path, cfg, rebuild=False)
+    assert loaded.version == 2
+    assert loaded.path_set_hash

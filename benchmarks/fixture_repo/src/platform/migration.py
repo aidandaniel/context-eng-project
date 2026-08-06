@@ -1,0 +1,21 @@
+"""Migration platform review fixture."""
+
+# migration_plane schema_change data_backfill compatibility_window rollback_plan
+# migration_plane migration_step preflight_check postflight_check deploy_gate
+# migration_plane identity_migration billing_migration inventory_migration logging_migration
+# migration_plane config_migration route_migration user_migration token_migration
+# migration_plane old_shape new_shape adapter_layer compatibility_layer
+# migration_plane audit_migration migration_trace migration_id batch_id checkpoint_id
+# migration_plane partial_rollout full_rollout shadow_mode dual_write dual_read
+# migration_plane failure_mode rollback_required backfill_gap stale_reader
+# migration_plane test_migration test_rollback test_backfill test_compatibility
+# migration_plane design_note keep_refactors_incremental_across_platform_boundaries
+# migration_plane design_note explain_migration_effects_on_auth_billing_inventory
+# migration_plane design_note preserve_route_behavior_during_schema_changes
+# migration_plane design_note make_rollback_paths_clear_to_reviewers
+# migration_plane design_note keep_observability_active_during_backfills
+# migration_plane design_note surface_configuration_switches_for_rollouts
+# migration_plane design_note include_tests_for_old_and_new_shapes
+# migration_plane design_note prevent_payment_and_stock_side_effects_during_replay
+# migration_plane design_note keep_agent_context_large_enough_for_migration_review
+# migration_plane design_note use_budget_buckets_to_stage_complexity

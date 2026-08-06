@@ -1,0 +1,24 @@
+"""Testing matrix platform review fixture."""
+
+# testing_plane test_auth test_billing test_users test_inventory test_logging
+# testing_plane regression_matrix integration_matrix unit_matrix benchmark_matrix
+# testing_plane expected_anchor hidden_anchor path_free_query oracle_free_benchmark
+# testing_plane refresh_case logout_case revoked_case retry_case expiry_case
+# testing_plane invoice_case discount_case payment_case refund_case gateway_case
+# testing_plane user_case duplicate_email_case deactivation_case role_case profile_case
+# testing_plane stock_case reserve_case restock_case catalog_case search_case
+# testing_plane config_case issuer_case debug_case ttl_case override_case
+# testing_plane logging_case metric_case error_boundary_case trace_case audit_case
+# testing_plane assertion_scope fixture_scope benchmark_scope training_scope
+# testing_plane false_positive false_negative missing_context over_context token_budget
+# testing_plane design_note keep_training_hidden_anchors_out_of_benchmark_queries
+# testing_plane design_note benchmark_inference_must_choose_anchors_from_query_terms
+# testing_plane design_note cover_budget_buckets_without_file_path_mentions
+# testing_plane design_note preserve_accuracy_when_expanding_corpus_size
+# testing_plane design_note test_multiple_high_budget_examples_not_one_outlier
+# testing_plane design_note verify_model_load_after_retraining
+# testing_plane design_note keep_synthetic_queries_realistic_enough_for_agents
+# testing_plane design_note measure_baseline_and_mcp_with_same_estimator
+# testing_plane design_note record_results_in_json_and_markdown_reports
+# testing_plane design_note keep_query_identifiers_stable_for_comparison
+

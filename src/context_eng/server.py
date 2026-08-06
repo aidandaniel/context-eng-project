@@ -5,16 +5,19 @@ The MCP layer is intentionally thin: it validates inputs and delegates to
 
 Multi-project support: pass ``workspace_root`` on each call (recommended when
 using a global MCP config), or rely on ``CONTEXT_ENG_WORKSPACE`` / process cwd.
-Engines are cached per workspace; bundles are tracked globally by ``bundle_id``
-so ``expand_context`` works without re-passing the workspace.
+Engines are cached per workspace (LRU); bundles are tracked globally by
+``bundle_id`` (LRU + idle TTL) so ``expand_context`` works without re-passing
+the workspace without unbounded memory growth.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
+from context_eng.cache import TtlLruCache
 from context_eng.config import load_config
 from context_eng.engine import ContextEngine
 from context_eng.formatting import format_context_message
@@ -22,19 +25,42 @@ from context_eng.workspace_resolve import resolve_workspace
 
 mcp = FastMCP("context-eng")
 
-# One engine per resolved workspace path (posix key).
-_engines: dict[str, ContextEngine] = {}
-# bundle_id -> engine that created it (for expand_context / estimate_tokens).
-_bundle_owners: dict[str, ContextEngine] = {}
+# Process-wide cache bounds (H1). Overridable via env for long-running hosts.
+_MAX_CACHED_ENGINES = max(1, int(os.environ.get("CONTEXT_ENG_MAX_ENGINES", "8")))
+_MAX_BUNDLE_OWNERS = max(1, int(os.environ.get("CONTEXT_ENG_MAX_BUNDLE_OWNERS", "64")))
+_BUNDLE_OWNER_TTL_SECONDS = float(
+    os.environ.get("CONTEXT_ENG_BUNDLE_TTL_SECONDS", "1800")
+)
 
+# bundle_id -> engine that created it (for expand_context / estimate_tokens).
+_bundle_owners: TtlLruCache[str, ContextEngine] = TtlLruCache(
+    maxsize=_MAX_BUNDLE_OWNERS,
+    ttl_seconds=_BUNDLE_OWNER_TTL_SECONDS if _BUNDLE_OWNER_TTL_SECONDS > 0 else None,
+)
+
+
+def _on_engine_evict(_key: str, engine: ContextEngine) -> None:
+    """Drop bundle ownership rows that pointed at an evicted engine."""
+    for bundle_id in list(_bundle_owners.keys()):
+        if _bundle_owners.get(bundle_id) is engine:
+            _bundle_owners.pop(bundle_id, None)
+
+
+# One engine per resolved workspace path (posix key).
+_engines: TtlLruCache[str, ContextEngine] = TtlLruCache(
+    maxsize=_MAX_CACHED_ENGINES,
+    on_evict=_on_engine_evict,
+)
 
 def get_engine(workspace_root: str | None = None) -> ContextEngine:
     """Return a cached ContextEngine for ``workspace_root`` (or cwd/env default)."""
     root = resolve_workspace(workspace_root)
     key = root.as_posix()
-    if key not in _engines:
-        _engines[key] = ContextEngine(config=load_config(str(root)))
-    return _engines[key]
+    engine = _engines.get(key)
+    if engine is None:
+        engine = ContextEngine(config=load_config(str(root)))
+        _engines[key] = engine
+    return engine
 
 
 def _engine_for_bundle(bundle_id: str) -> ContextEngine | None:
@@ -45,6 +71,22 @@ def _track_bundle(engine: ContextEngine, bundle_id: str) -> None:
     _bundle_owners[bundle_id] = engine
 
 
+def _tool_error(exc: BaseException) -> dict:
+    """Structured error payload for MCP tools (never re-raise from entrypoints)."""
+    return {"error": str(exc), "error_type": type(exc).__name__}
+
+
+# Explicit names kept for clarity; Exception covers the rest.
+_TOOL_EXCEPTIONS = (
+    PermissionError,
+    FileNotFoundError,
+    NotADirectoryError,
+    ValueError,
+    OSError,
+    Exception,
+)
+
+
 def _prepare_context(
     query: str,
     max_tokens: Optional[int] = None,
@@ -52,18 +94,21 @@ def _prepare_context(
     workspace_root: Optional[str] = None,
 ) -> dict:
     """Analyze a query and return a ready-to-use context bundle."""
-    engine = get_engine(workspace_root)
-    bundle = engine.get_context_bundle(query, max_tokens, intent)
-    analysis = engine.analysis_for_bundle(bundle.bundle_id) or engine.analyze_query(query)
-    _track_bundle(engine, bundle.bundle_id)
-    workspace = str(engine.config.workspace_root)
-    return {
-        "query": query,
-        "workspace_root": workspace,
-        "analysis": analysis.model_dump(),
-        "bundle": bundle.model_dump(),
-        "formatted_context": format_context_message(query, analysis, bundle, workspace),
-    }
+    try:
+        engine = get_engine(workspace_root)
+        bundle = engine.get_context_bundle(query, max_tokens, intent)
+        analysis = engine.analysis_for_bundle(bundle.bundle_id) or engine.analyze_query(query)
+        _track_bundle(engine, bundle.bundle_id)
+        workspace = str(engine.config.workspace_root)
+        return {
+            "query": query,
+            "workspace_root": workspace,
+            "analysis": analysis.model_dump(),
+            "bundle": bundle.model_dump(),
+            "formatted_context": format_context_message(query, analysis, bundle, workspace),
+        }
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 @mcp.tool(
@@ -87,7 +132,10 @@ def prepare_context(
     all chunks. Use ``expand_context`` with the returned ``bundle.bundle_id`` only
     if the initial pack is insufficient.
     """
-    return _prepare_context(query, max_tokens, intent, workspace_root)
+    try:
+        return _prepare_context(query, max_tokens, intent, workspace_root)
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 @mcp.prompt(
@@ -100,9 +148,14 @@ def context_prompt(
     workspace_root: Optional[str] = None,
 ) -> str:
     """Slash command: analyze the query and inject a budgeted context pack."""
-    task = query.strip() or "Explore this codebase and summarize the main modules."
-    result = _prepare_context(task, workspace_root=workspace_root)
-    return result["formatted_context"]
+    try:
+        task = query.strip() or "Explore this codebase and summarize the main modules."
+        result = _prepare_context(task, workspace_root=workspace_root)
+        if "error" in result:
+            return f"Error preparing context: {result['error']}"
+        return result["formatted_context"]
+    except _TOOL_EXCEPTIONS as exc:
+        return f"Error preparing context: {exc}"
 
 
 @mcp.tool(
@@ -127,10 +180,13 @@ def analyze_query(
     Returns intent, confidence, extracted signals (mentioned files/symbols,
     stack-trace detection), and a recommended/min/max token budget.
     """
-    engine = get_engine(workspace_root)
-    result = engine.analyze_query(query).model_dump()
-    result["workspace_root"] = str(engine.config.workspace_root)
-    return result
+    try:
+        engine = get_engine(workspace_root)
+        result = engine.analyze_query(query).model_dump()
+        result["workspace_root"] = str(engine.config.workspace_root)
+        return result
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 @mcp.tool(
@@ -161,12 +217,15 @@ def get_context_bundle(
     mentioned files/symbols are always included. Use the returned ``bundle_id``
     with ``expand_context`` if you need more.
     """
-    engine = get_engine(workspace_root)
-    bundle = engine.get_context_bundle(query, max_tokens, intent)
-    _track_bundle(engine, bundle.bundle_id)
-    result = bundle.model_dump()
-    result["workspace_root"] = str(engine.config.workspace_root)
-    return result
+    try:
+        engine = get_engine(workspace_root)
+        bundle = engine.get_context_bundle(query, max_tokens, intent)
+        _track_bundle(engine, bundle.bundle_id)
+        result = bundle.model_dump()
+        result["workspace_root"] = str(engine.config.workspace_root)
+        return result
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 @mcp.tool(
@@ -189,16 +248,16 @@ def expand_context(
     bundle was insufficient. ``workspace_root`` is not required here; the bundle
     is looked up by ``bundle_id``.
     """
-    engine = _engine_for_bundle(bundle_id)
-    if engine is None:
-        return {"error": f"unknown bundle_id: {bundle_id}"}
     try:
+        engine = _engine_for_bundle(bundle_id)
+        if engine is None:
+            return {"error": f"unknown bundle_id: {bundle_id}"}
         bundle = engine.expand_context(bundle_id, focus, extra_tokens)
         result = bundle.model_dump()
         result["workspace_root"] = str(engine.config.workspace_root)
         return result
-    except KeyError as exc:
-        return {"error": str(exc)}
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 @mcp.tool(
@@ -214,12 +273,19 @@ def estimate_tokens(
     bundle_id: Optional[str] = None,
 ) -> dict:
     """Estimate tokens for arbitrary text, or for a previously built bundle."""
-    if bundle_id:
-        engine = _engine_for_bundle(bundle_id)
-        if engine is None:
-            return {"tokens": 0, "method": "unknown", "error": f"unknown bundle_id: {bundle_id}"}
-        return engine.estimate_bundle_tokens(bundle_id).model_dump()
-    return get_engine().estimate_tokens(text or "").model_dump()
+    try:
+        if bundle_id:
+            engine = _engine_for_bundle(bundle_id)
+            if engine is None:
+                return {
+                    "tokens": 0,
+                    "method": "unknown",
+                    "error": f"unknown bundle_id: {bundle_id}",
+                }
+            return engine.estimate_bundle_tokens(bundle_id).model_dump()
+        return get_engine().estimate_tokens(text or "").model_dump()
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
 
 
 def main() -> None:

@@ -22,10 +22,15 @@ tokens = ["tiktoken>=0.5"]
 embeddings = [
     "sentence-transformers>=3.0",
 ]
+swebench = [
+    "datasets>=2.19",
+    "tiktoken>=0.5",
+]
 dev = [
     "pytest>=7.4",
     "mypy>=1.8",
     "tiktoken>=0.5",
+    "datasets>=2.19",
 ]
 
 [tool.mypy]
@@ -50,8 +55,12 @@ include = ["context_eng*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]
-context_eng = ["py.typed"]
+context_eng = ["py.typed", "ml/models/*.joblib", "ml/models/checksums.json"]
 
 [tool.pytest.ini_options]
+markers = [
+    "benchmark: end-to-end token-reduction benchmark gate (may be slower)",
+]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
+

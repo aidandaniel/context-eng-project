@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterator
 
+from context_eng.ignore import path_is_ignored
+
 # Extensions we treat as readable source/text for retrieval.
 TEXT_EXTENSIONS = {
     ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".java",
@@ -15,9 +17,44 @@ TEXT_EXTENSIONS = {
 
 _MAX_FILE_BYTES = 512 * 1024  # skip very large files
 
+# Basename denylist (matched case-insensitively).
+_SECRET_EXACT_NAMES = frozenset({
+    "credentials.json",
+    "secrets.json",
+    "secrets.yaml",
+    "secrets.yml",
+    "secrets.toml",
+    "id_rsa",
+    "id_ed25519",
+    ".npmrc",
+    ".pypirc",
+    "netrc",
+    ".netrc",
+})
+_SECRET_SUFFIXES = frozenset({".pem", ".key", ".p12", ".pfx"})
+_SECRET_STEMS = frozenset({"credentials", "secrets"})
+_SECRET_STEM_SUFFIXES = frozenset({
+    ".json", ".yaml", ".yml", ".toml", ".txt", ".ini", ".cfg",
+})
+
+
+def is_secret_path(path: Path) -> bool:
+    """Return True if ``path`` looks like a secret-prone file (basename rules)."""
+    name = path.name.lower()
+    if name.startswith(".env"):
+        return True
+    if name in _SECRET_EXACT_NAMES:
+        return True
+    suffix = path.suffix.lower()
+    if suffix in _SECRET_SUFFIXES:
+        return True
+    if path.stem.lower() in _SECRET_STEMS and suffix in _SECRET_STEM_SUFFIXES:
+        return True
+    return False
+
 
 def _is_ignored(rel_parts: tuple[str, ...], ignore_globs: tuple[str, ...]) -> bool:
-    return any(part in ignore_globs for part in rel_parts)
+    return path_is_ignored("/".join(rel_parts), ignore_globs)
 
 
 def iter_files(
@@ -27,6 +64,8 @@ def iter_files(
     workspace = workspace.resolve()
     for path in workspace.rglob("*"):
         if not path.is_file():
+            continue
+        if is_secret_path(path):
             continue
         if path.suffix.lower() not in TEXT_EXTENSIONS:
             continue
