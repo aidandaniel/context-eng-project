@@ -5,16 +5,19 @@ The MCP layer is intentionally thin: it validates inputs and delegates to
 
 Multi-project support: pass ``workspace_root`` on each call (recommended when
 using a global MCP config), or rely on ``CONTEXT_ENG_WORKSPACE`` / process cwd.
-Engines are cached per workspace; bundles are tracked globally by ``bundle_id``
-so ``expand_context`` works without re-passing the workspace.
+Engines are cached per workspace (LRU); bundles are tracked globally by
+``bundle_id`` (LRU + idle TTL) so ``expand_context`` works without re-passing
+the workspace without unbounded memory growth.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
+from context_eng.cache import TtlLruCache
 from context_eng.config import load_config
 from context_eng.engine import ContextEngine
 from context_eng.formatting import format_context_message
@@ -22,19 +25,42 @@ from context_eng.workspace_resolve import resolve_workspace
 
 mcp = FastMCP("context-eng")
 
-# One engine per resolved workspace path (posix key).
-_engines: dict[str, ContextEngine] = {}
-# bundle_id -> engine that created it (for expand_context / estimate_tokens).
-_bundle_owners: dict[str, ContextEngine] = {}
+# Process-wide cache bounds (H1). Overridable via env for long-running hosts.
+_MAX_CACHED_ENGINES = max(1, int(os.environ.get("CONTEXT_ENG_MAX_ENGINES", "8")))
+_MAX_BUNDLE_OWNERS = max(1, int(os.environ.get("CONTEXT_ENG_MAX_BUNDLE_OWNERS", "64")))
+_BUNDLE_OWNER_TTL_SECONDS = float(
+    os.environ.get("CONTEXT_ENG_BUNDLE_TTL_SECONDS", "1800")
+)
 
+# bundle_id -> engine that created it (for expand_context / estimate_tokens).
+_bundle_owners: TtlLruCache[str, ContextEngine] = TtlLruCache(
+    maxsize=_MAX_BUNDLE_OWNERS,
+    ttl_seconds=_BUNDLE_OWNER_TTL_SECONDS if _BUNDLE_OWNER_TTL_SECONDS > 0 else None,
+)
+
+
+def _on_engine_evict(_key: str, engine: ContextEngine) -> None:
+    """Drop bundle ownership rows that pointed at an evicted engine."""
+    for bundle_id in list(_bundle_owners.keys()):
+        if _bundle_owners.get(bundle_id) is engine:
+            _bundle_owners.pop(bundle_id, None)
+
+
+# One engine per resolved workspace path (posix key).
+_engines: TtlLruCache[str, ContextEngine] = TtlLruCache(
+    maxsize=_MAX_CACHED_ENGINES,
+    on_evict=_on_engine_evict,
+)
 
 def get_engine(workspace_root: str | None = None) -> ContextEngine:
     """Return a cached ContextEngine for ``workspace_root`` (or cwd/env default)."""
     root = resolve_workspace(workspace_root)
     key = root.as_posix()
-    if key not in _engines:
-        _engines[key] = ContextEngine(config=load_config(str(root)))
-    return _engines[key]
+    engine = _engines.get(key)
+    if engine is None:
+        engine = ContextEngine(config=load_config(str(root)))
+        _engines[key] = engine
+    return engine
 
 
 def _engine_for_bundle(bundle_id: str) -> ContextEngine | None:

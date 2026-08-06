@@ -71,6 +71,10 @@ class Config:
     embedding_model_name: str = "all-MiniLM-L6-v2"
     # Build/cache ``.context-eng/manifest.json`` for manifest-backed retrieval.
     manifest_auto_build: bool = True
+    # Expand-state cache bounds (H1): drop idle bundles so candidate lists
+    # cannot grow without limit in a long-lived MCP process.
+    max_cached_bundles: int = 32
+    bundle_ttl_seconds: float = 1800.0
 
     @property
     def resolved_events_path(self) -> Path:
@@ -140,6 +144,10 @@ def load_config(workspace_root: str | None = None) -> Config:
         overrides["embedding_model_name"] = str(section["embedding_model_name"])
     if "manifest_auto_build" in section:
         overrides["manifest_auto_build"] = bool(section["manifest_auto_build"])
+    if "max_cached_bundles" in section:
+        overrides["max_cached_bundles"] = int(section["max_cached_bundles"])
+    if "bundle_ttl_seconds" in section:
+        overrides["bundle_ttl_seconds"] = float(section["bundle_ttl_seconds"])
     if "intent_budgets" in section:
         budgets = dict(DEFAULT_INTENT_BUDGETS)
         for intent, vals in section["intent_budgets"].items():

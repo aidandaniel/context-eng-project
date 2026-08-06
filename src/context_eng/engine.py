@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from context_eng.budget.policy import BudgetPolicy
+from context_eng.cache import TtlLruCache
 from context_eng.config import Config, load_config
 from context_eng.intent import classifier
 from context_eng.intent.budgets import budget_for
@@ -63,7 +64,10 @@ class ContextEngine:
         self.ranker = ChunkRanker(weights)
         self.policy = BudgetPolicy()
         self.logger = EventLogger(self.config.resolved_events_path)
-        self._bundles: dict[str, _BundleState] = {}
+        self._bundles: TtlLruCache[str, _BundleState] = TtlLruCache(
+            maxsize=self.config.max_cached_bundles,
+            ttl_seconds=self.config.bundle_ttl_seconds,
+        )
 
     # ------------------------------------------------------------------ #
     # Public API (mirrors the MCP tools)
