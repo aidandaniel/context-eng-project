@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 
 from context_eng.config import Config
+from context_eng.ml.repo_stats import repo_stats
 from context_eng.models import Intent, QueryAnalysis
-from context_eng.workspace import iter_files, read_text
 
 INTENT_COLUMNS = [
     "intent_debug",
@@ -34,21 +33,6 @@ BASE_FEATURE_NAMES = [
 ]
 
 FEATURE_NAMES = BASE_FEATURE_NAMES + INTENT_COLUMNS
-
-
-def repo_stats(config: Config) -> tuple[int, float]:
-    """Walk workspace (respecting ignore_globs), return (file_count, log10(loc+1))."""
-    workspace = Path(config.workspace_root).resolve()
-    file_count = 0
-    total_lines = 0
-    for path in iter_files(workspace, config.ignore_globs):
-        file_count += 1
-        try:
-            text = read_text(path)
-        except OSError:
-            continue
-        total_lines += text.count("\n") + (1 if text else 0)
-    return file_count, math.log10(total_lines + 1)
 
 
 def _intent_one_hot(intent: Intent) -> dict[str, int]:
