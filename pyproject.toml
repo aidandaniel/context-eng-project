@@ -55,7 +55,7 @@ include = ["context_eng*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]
-context_eng = ["py.typed", "ml/models/*.joblib"]
+context_eng = ["py.typed", "ml/models/*.joblib", "ml/models/checksums.json"]
 
 [tool.pytest.ini_options]
 markers = [

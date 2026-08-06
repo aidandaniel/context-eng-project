@@ -129,6 +129,7 @@ class ContextEngine:
         grep = self.retriever.search(
             query, workspace, self.config.max_grep_candidates
         )
+        degraded = bool(getattr(self.retriever, "last_degraded", False))
         anchor_paths = discover_anchor_paths(
             query, analysis, workspace, grep, self.config
         )
@@ -146,6 +147,7 @@ class ContextEngine:
         bundle = self._pack_and_build(
             query, analysis, budget_limit, candidates, expansions=0,
             anchor_count=len(anchor_paths),
+            retrieval_degraded=degraded,
         )
 
         state = _BundleState(query, analysis, budget_limit, candidates)
@@ -495,6 +497,7 @@ class ContextEngine:
         expansions: int,
         bundle_id: str | None = None,
         anchor_count: int = 0,
+        retrieval_degraded: bool = False,
     ) -> ContextBundle:
         scored = self.ranker.rank(candidates)
 
@@ -551,6 +554,7 @@ class ContextEngine:
             bundle_id=bundle_id or EventLogger.new_id(),
             expansions=expansions,
             optional_chunks_used=optional_kept,
+            retrieval_degraded=retrieval_degraded,
         )
 
     def _log_bundle(
@@ -571,6 +575,7 @@ class ContextEngine:
             "budget_used": bundle.budget_used,
             "chunk_count": len(bundle.chunks),
             "expansions": expansions,
+            "retrieval_degraded": bundle.retrieval_degraded,
             "features": {
                 "has_stack_trace": analysis.signals.has_stack_trace,
                 "mentioned_files": len(analysis.signals.mentioned_files),

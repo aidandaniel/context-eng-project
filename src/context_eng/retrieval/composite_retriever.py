@@ -54,6 +54,11 @@ class CompositeRetriever:
         embed_hits = self._embedding.search(query, workspace, limit)
         return merge_retrieval_hits(grep_hits, embed_hits, limit)
 
+    @property
+    def last_degraded(self) -> bool:
+        """True when the last grep search fell back after ripgrep failure."""
+        return bool(getattr(self._grep, "last_degraded", False))
+
 
 def build_retriever(config: Config) -> Retriever:
     """Factory used by the engine; embeddings off == grep-only behavior."""

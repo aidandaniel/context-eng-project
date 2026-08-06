@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterator
 
+from context_eng.ignore import path_is_ignored
+
 # Extensions we treat as readable source/text for retrieval.
 TEXT_EXTENSIONS = {
     ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".java",
@@ -52,7 +54,7 @@ def is_secret_path(path: Path) -> bool:
 
 
 def _is_ignored(rel_parts: tuple[str, ...], ignore_globs: tuple[str, ...]) -> bool:
-    return any(part in ignore_globs for part in rel_parts)
+    return path_is_ignored("/".join(rel_parts), ignore_globs)
 
 
 def iter_files(

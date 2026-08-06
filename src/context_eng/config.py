@@ -9,6 +9,7 @@ import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from context_eng.ignore import merge_ignore_globs
 from context_eng.workspace_resolve import resolve_workspace
 
 DEFAULT_IGNORE_GLOBS: tuple[str, ...] = (
@@ -75,6 +76,8 @@ class Config:
     # cannot grow without limit in a long-lived MCP process.
     max_cached_bundles: int = 32
     bundle_ttl_seconds: float = 1800.0
+    # Ripgrep subprocess timeout (H4); on failure we fall back to Python scan.
+    rg_timeout_seconds: float = 30.0
 
     @property
     def resolved_events_path(self) -> Path:
@@ -103,7 +106,10 @@ def load_config(workspace_root: str | None = None) -> Config:
     overrides: dict[str, object] = {}
 
     if "ignore_globs" in section:
-        overrides["ignore_globs"] = tuple(section["ignore_globs"])
+        # Merge onto defaults so toml cannot drop .git/.venv protections.
+        overrides["ignore_globs"] = merge_ignore_globs(
+            DEFAULT_IGNORE_GLOBS, list(section["ignore_globs"])
+        )
     if "default_max_tokens" in section:
         overrides["default_max_tokens"] = int(section["default_max_tokens"])
     if "grep_context_lines" in section:
@@ -148,6 +154,8 @@ def load_config(workspace_root: str | None = None) -> Config:
         overrides["max_cached_bundles"] = int(section["max_cached_bundles"])
     if "bundle_ttl_seconds" in section:
         overrides["bundle_ttl_seconds"] = float(section["bundle_ttl_seconds"])
+    if "rg_timeout_seconds" in section:
+        overrides["rg_timeout_seconds"] = float(section["rg_timeout_seconds"])
     if "intent_budgets" in section:
         budgets = dict(DEFAULT_INTENT_BUDGETS)
         for intent, vals in section["intent_budgets"].items():
