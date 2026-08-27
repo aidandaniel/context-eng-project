@@ -89,8 +89,12 @@ def read_text(path: Path) -> str:
 
 
 def relpath(path: Path, workspace: Path) -> str:
-    """POSIX-style path relative to the workspace root."""
+    """POSIX-style path relative to the workspace root.
+
+    Returns ``""`` when ``path`` is outside ``workspace`` (do not use as a
+    filesystem path — callers must skip empty results).
+    """
     try:
         return path.resolve().relative_to(workspace.resolve()).as_posix()
     except ValueError:
-        return path.as_posix()
+        return ""

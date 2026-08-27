@@ -49,7 +49,7 @@ def rank_anchor_options(
     """Rank candidate files that could become inferred anchors.
 
     This is intentionally grounded: it can only choose paths that retrieval
-    already found in the workspace, which keeps the FastMCP UX config-free and
+    already found in the workspace, which keeps the MCPServer UX config-free and
     prevents invented paths from entering the bundle.
     """
     if not candidates or limit <= 0:

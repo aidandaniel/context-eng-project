@@ -52,10 +52,10 @@ def resolve_budget(
 ) -> BudgetResolution:
     """Pick the token ceiling for ``get_context_bundle``."""
     if max_tokens is not None:
-        return BudgetResolution(max_tokens, "explicit")
+        return BudgetResolution(snap_to_bucket(int(max_tokens)), "explicit")
     try:
         return BudgetResolution(rf_budget(query, analysis, config), "rf")
-    except (FileNotFoundError, PermissionError):
+    except (FileNotFoundError, PermissionError, OSError, ValueError):
         limit = snap_to_bucket(config.default_max_tokens)
         return BudgetResolution(limit, "fallback_default")
 

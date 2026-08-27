@@ -1,4 +1,4 @@
-"""FastMCP server exposing the Context Engineering tools.
+"""MCPServer exposing the Context Engineering tools.
 
 The MCP layer is intentionally thin: it validates inputs and delegates to
 ``ContextEngine``. Run with ``python -m context_eng.server`` (stdio transport).
@@ -13,17 +13,20 @@ the workspace without unbounded memory growth.
 from __future__ import annotations
 
 import os
+import sys
 from typing import Optional
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
+from context_eng import __version__
 from context_eng.cache import TtlLruCache
 from context_eng.config import load_config
 from context_eng.engine import ContextEngine
 from context_eng.formatting import format_context_message
+from context_eng.ml.model_paths import DEFAULT_MODEL_NAME
 from context_eng.workspace_resolve import resolve_workspace
 
-mcp = FastMCP("context-eng")
+mcp = MCPServer("context-eng")
 
 # Process-wide cache bounds (H1). Overridable via env for long-running hosts.
 _MAX_CACHED_ENGINES = max(1, int(os.environ.get("CONTEXT_ENG_MAX_ENGINES", "8")))
@@ -76,6 +79,15 @@ def _tool_error(exc: BaseException) -> dict:
     return {"error": str(exc), "error_type": type(exc).__name__}
 
 
+def _attach_meta(engine: ContextEngine, result: dict) -> dict:
+    """Add workspace, version, and config_error without clobbering tool fields."""
+    result.setdefault("workspace_root", str(engine.config.workspace_root))
+    result["version"] = __version__
+    if engine.config.config_error:
+        result["config_error"] = engine.config.config_error
+    return result
+
+
 # Explicit names kept for clarity; Exception covers the rest.
 _TOOL_EXCEPTIONS = (
     PermissionError,
@@ -100,13 +112,18 @@ def _prepare_context(
         analysis = engine.analysis_for_bundle(bundle.bundle_id) or engine.analyze_query(query)
         _track_bundle(engine, bundle.bundle_id)
         workspace = str(engine.config.workspace_root)
-        return {
-            "query": query,
-            "workspace_root": workspace,
-            "analysis": analysis.model_dump(),
-            "bundle": bundle.model_dump(),
-            "formatted_context": format_context_message(query, analysis, bundle, workspace),
-        }
+        return _attach_meta(
+            engine,
+            {
+                "query": query,
+                "workspace_root": workspace,
+                "analysis": analysis.model_dump(),
+                "bundle": bundle.model_dump(),
+                "formatted_context": format_context_message(
+                    query, analysis, bundle, workspace
+                ),
+            },
+        )
     except _TOOL_EXCEPTIONS as exc:
         return _tool_error(exc)
 
@@ -115,7 +132,7 @@ def _prepare_context(
     name="prepare_context",
     annotations={
         "title": "Prepare budgeted context (analyze + bundle in one call)",
-        "readOnlyHint": True,
+        "readOnlyHint": False,
         "openWorldHint": False,
     },
 )
@@ -162,7 +179,7 @@ def context_prompt(
     name="analyze_query",
     annotations={
         "title": "Analyze query intent and budget",
-        "readOnlyHint": True,
+        "readOnlyHint": False,
         "openWorldHint": False,
     },
 )
@@ -183,8 +200,7 @@ def analyze_query(
     try:
         engine = get_engine(workspace_root)
         result = engine.analyze_query(query).model_dump()
-        result["workspace_root"] = str(engine.config.workspace_root)
-        return result
+        return _attach_meta(engine, result)
     except _TOOL_EXCEPTIONS as exc:
         return _tool_error(exc)
 
@@ -193,7 +209,7 @@ def analyze_query(
     name="get_context_bundle",
     annotations={
         "title": "Get a budgeted, query-matched context pack",
-        "readOnlyHint": True,
+        "readOnlyHint": False,
         "openWorldHint": False,
     },
 )
@@ -222,8 +238,7 @@ def get_context_bundle(
         bundle = engine.get_context_bundle(query, max_tokens, intent)
         _track_bundle(engine, bundle.bundle_id)
         result = bundle.model_dump()
-        result["workspace_root"] = str(engine.config.workspace_root)
-        return result
+        return _attach_meta(engine, result)
     except _TOOL_EXCEPTIONS as exc:
         return _tool_error(exc)
 
@@ -232,7 +247,7 @@ def get_context_bundle(
     name="expand_context",
     annotations={
         "title": "Expand an existing context bundle",
-        "readOnlyHint": True,
+        "readOnlyHint": False,
         "openWorldHint": False,
     },
 )
@@ -254,8 +269,7 @@ def expand_context(
             return {"error": f"unknown bundle_id: {bundle_id}"}
         bundle = engine.expand_context(bundle_id, focus, extra_tokens)
         result = bundle.model_dump()
-        result["workspace_root"] = str(engine.config.workspace_root)
-        return result
+        return _attach_meta(engine, result)
     except _TOOL_EXCEPTIONS as exc:
         return _tool_error(exc)
 
@@ -284,6 +298,27 @@ def estimate_tokens(
                 }
             return engine.estimate_bundle_tokens(bundle_id).model_dump()
         return get_engine().estimate_tokens(text or "").model_dump()
+    except _TOOL_EXCEPTIONS as exc:
+        return _tool_error(exc)
+
+
+@mcp.tool(
+    name="mcp_health",
+    annotations={
+        "title": "Context-eng health",
+        "readOnlyHint": True,
+        "openWorldHint": False,
+    },
+)
+def mcp_health() -> dict:
+    """Process liveness, package version, and default RF model name."""
+    try:
+        return {
+            "ok": True,
+            "version": __version__,
+            "model": DEFAULT_MODEL_NAME,
+            "python": sys.version.split()[0],
+        }
     except _TOOL_EXCEPTIONS as exc:
         return _tool_error(exc)
 

@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 
 from context_eng.config import Config
-from context_eng.index.manifest import get_searchable_files
+from context_eng.index.manifest import contained_path, get_searchable_files
 from context_eng.models import CandidateChunk
 from context_eng.workspace import read_text, relpath
 
@@ -106,7 +106,9 @@ def _python_scan_hits(
     for path in files:
         hit_lines = _python_file_hits(path, patterns)
         if hit_lines:
-            hits[relpath(path, workspace)] = hit_lines
+            rel = relpath(path, workspace)
+            if rel:
+                hits[rel] = hit_lines
     return hits
 
 
@@ -128,6 +130,8 @@ def _parse_rg_json(stdout: str, workspace: Path) -> dict[str, list[int]]:
         if not raw_path or line_no <= 0:
             continue
         rel = relpath(Path(raw_path), workspace)
+        if not rel or contained_path(workspace, rel) is None:
+            continue
         hits.setdefault(rel, []).append(line_no)
     return hits
 
@@ -194,7 +198,9 @@ def _chunks_from_hits(
     patterns: list[tuple[str, re.Pattern[str]]],
     context: int,
 ) -> list[CandidateChunk]:
-    path = workspace / rel_path
+    path = contained_path(workspace, rel_path)
+    if path is None:
+        return []
     source = read_text(path)
     if not source:
         return []

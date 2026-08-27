@@ -42,7 +42,7 @@ def _require_joblib():
         import joblib
     except ImportError as exc:
         raise RuntimeError(
-            "ML budget models require the 'ml' extra: pip install -e '.[ml]'"
+            "ML budget models require scikit-learn and joblib (installed with the package)"
         ) from exc
     return joblib
 

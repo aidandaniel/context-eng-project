@@ -10,6 +10,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from context_eng.ignore import merge_ignore_globs
+from context_eng.limits import MAX_EXPANSIONS, MAX_QUERY_CHARS
 from context_eng.workspace_resolve import resolve_workspace
 
 DEFAULT_IGNORE_GLOBS: tuple[str, ...] = (
@@ -65,7 +66,7 @@ class Config:
     max_optional_chunks_upper: int = 4
     max_optional_chunks_floor: int = 1
     events_path: Path | None = None
-    # ``rf`` uses packaged ``budget_rf_v2.joblib`` (default); ``intent`` is legacy/ignored.
+    # ``rf`` uses packaged ``budget_rf_swebench.joblib`` (SWE-bench Lite RF).
     budget_source: str = "rf"
     ml_model_path: Path | None = None
     enable_embedding_retriever: bool = False
@@ -78,6 +79,10 @@ class Config:
     bundle_ttl_seconds: float = 1800.0
     # Ripgrep subprocess timeout (H4); on failure we fall back to Python scan.
     rg_timeout_seconds: float = 30.0
+    max_query_chars: int = MAX_QUERY_CHARS
+    max_expansions: int = MAX_EXPANSIONS
+    # Set when context-eng.toml is missing values or cannot be parsed.
+    config_error: str | None = None
 
     @property
     def resolved_events_path(self) -> Path:
@@ -99,67 +104,75 @@ def load_config(workspace_root: str | None = None) -> Config:
     try:
         with toml_path.open("rb") as fh:
             data = tomllib.load(fh)
-    except (OSError, tomllib.TOMLDecodeError):
-        return cfg
+    except tomllib.TOMLDecodeError as exc:
+        return replace(cfg, config_error=f"Invalid context-eng.toml: {exc}")
+    except OSError as exc:
+        return replace(cfg, config_error=f"Could not read context-eng.toml: {exc}")
 
     section = data.get("context_eng", data)
     overrides: dict[str, object] = {}
 
-    if "ignore_globs" in section:
-        # Merge onto defaults so toml cannot drop .git/.venv protections.
-        overrides["ignore_globs"] = merge_ignore_globs(
-            DEFAULT_IGNORE_GLOBS, list(section["ignore_globs"])
-        )
-    if "default_max_tokens" in section:
-        overrides["default_max_tokens"] = int(section["default_max_tokens"])
-    if "grep_context_lines" in section:
-        overrides["grep_context_lines"] = int(section["grep_context_lines"])
-    if "max_grep_candidates" in section:
-        overrides["max_grep_candidates"] = int(section["max_grep_candidates"])
-    if "enable_anchor_inference" in section:
-        overrides["enable_anchor_inference"] = bool(section["enable_anchor_inference"])
-    if "max_inferred_anchor_files" in section:
-        overrides["max_inferred_anchor_files"] = int(section["max_inferred_anchor_files"])
-    if "max_inferred_anchor_files_upper" in section:
-        overrides["max_inferred_anchor_files_upper"] = int(
-            section["max_inferred_anchor_files_upper"]
-        )
-    if "min_label_recall" in section:
-        overrides["min_label_recall"] = float(section["min_label_recall"])
-    if "label_hard_ceiling_factor" in section:
-        overrides["label_hard_ceiling_factor"] = float(section["label_hard_ceiling_factor"])
-    if "legacy_query_length_floors" in section:
-        overrides["legacy_query_length_floors"] = bool(section["legacy_query_length_floors"])
-    if "inferred_anchor_min_score" in section:
-        overrides["inferred_anchor_min_score"] = float(section["inferred_anchor_min_score"])
-    if "min_chunk_score" in section:
-        overrides["min_chunk_score"] = float(section["min_chunk_score"])
-    if "max_optional_chunks" in section:
-        overrides["max_optional_chunks"] = int(section["max_optional_chunks"])
-    if "max_optional_chunks_upper" in section:
-        overrides["max_optional_chunks_upper"] = int(section["max_optional_chunks_upper"])
-    if "max_optional_chunks_floor" in section:
-        overrides["max_optional_chunks_floor"] = int(section["max_optional_chunks_floor"])
-    if "budget_source" in section:
-        overrides["budget_source"] = str(section["budget_source"])
-    if "ml_model_path" in section:
-        overrides["ml_model_path"] = Path(section["ml_model_path"])
-    if "enable_embedding_retriever" in section:
-        overrides["enable_embedding_retriever"] = bool(section["enable_embedding_retriever"])
-    if "embedding_model_name" in section:
-        overrides["embedding_model_name"] = str(section["embedding_model_name"])
-    if "manifest_auto_build" in section:
-        overrides["manifest_auto_build"] = bool(section["manifest_auto_build"])
-    if "max_cached_bundles" in section:
-        overrides["max_cached_bundles"] = int(section["max_cached_bundles"])
-    if "bundle_ttl_seconds" in section:
-        overrides["bundle_ttl_seconds"] = float(section["bundle_ttl_seconds"])
-    if "rg_timeout_seconds" in section:
-        overrides["rg_timeout_seconds"] = float(section["rg_timeout_seconds"])
-    if "intent_budgets" in section:
-        budgets = dict(DEFAULT_INTENT_BUDGETS)
-        for intent, vals in section["intent_budgets"].items():
-            budgets[intent] = (int(vals[0]), int(vals[1]), int(vals[2]))
-        overrides["intent_budgets"] = budgets
-
-    return replace(cfg, **overrides)
+    try:
+        if "ignore_globs" in section:
+            # Merge onto defaults so toml cannot drop .git/.venv protections.
+            overrides["ignore_globs"] = merge_ignore_globs(
+                DEFAULT_IGNORE_GLOBS, list(section["ignore_globs"])
+            )
+        if "default_max_tokens" in section:
+            overrides["default_max_tokens"] = int(section["default_max_tokens"])
+        if "grep_context_lines" in section:
+            overrides["grep_context_lines"] = int(section["grep_context_lines"])
+        if "max_grep_candidates" in section:
+            overrides["max_grep_candidates"] = int(section["max_grep_candidates"])
+        if "enable_anchor_inference" in section:
+            overrides["enable_anchor_inference"] = bool(section["enable_anchor_inference"])
+        if "max_inferred_anchor_files" in section:
+            overrides["max_inferred_anchor_files"] = int(section["max_inferred_anchor_files"])
+        if "max_inferred_anchor_files_upper" in section:
+            overrides["max_inferred_anchor_files_upper"] = int(
+                section["max_inferred_anchor_files_upper"]
+            )
+        if "min_label_recall" in section:
+            overrides["min_label_recall"] = float(section["min_label_recall"])
+        if "label_hard_ceiling_factor" in section:
+            overrides["label_hard_ceiling_factor"] = float(section["label_hard_ceiling_factor"])
+        if "legacy_query_length_floors" in section:
+            overrides["legacy_query_length_floors"] = bool(section["legacy_query_length_floors"])
+        if "inferred_anchor_min_score" in section:
+            overrides["inferred_anchor_min_score"] = float(section["inferred_anchor_min_score"])
+        if "min_chunk_score" in section:
+            overrides["min_chunk_score"] = float(section["min_chunk_score"])
+        if "max_optional_chunks" in section:
+            overrides["max_optional_chunks"] = int(section["max_optional_chunks"])
+        if "max_optional_chunks_upper" in section:
+            overrides["max_optional_chunks_upper"] = int(section["max_optional_chunks_upper"])
+        if "max_optional_chunks_floor" in section:
+            overrides["max_optional_chunks_floor"] = int(section["max_optional_chunks_floor"])
+        if "budget_source" in section:
+            overrides["budget_source"] = str(section["budget_source"])
+        if "ml_model_path" in section:
+            overrides["ml_model_path"] = Path(section["ml_model_path"])
+        if "enable_embedding_retriever" in section:
+            overrides["enable_embedding_retriever"] = bool(section["enable_embedding_retriever"])
+        if "embedding_model_name" in section:
+            overrides["embedding_model_name"] = str(section["embedding_model_name"])
+        if "manifest_auto_build" in section:
+            overrides["manifest_auto_build"] = bool(section["manifest_auto_build"])
+        if "max_cached_bundles" in section:
+            overrides["max_cached_bundles"] = int(section["max_cached_bundles"])
+        if "bundle_ttl_seconds" in section:
+            overrides["bundle_ttl_seconds"] = float(section["bundle_ttl_seconds"])
+        if "rg_timeout_seconds" in section:
+            overrides["rg_timeout_seconds"] = float(section["rg_timeout_seconds"])
+        if "max_query_chars" in section:
+            overrides["max_query_chars"] = int(section["max_query_chars"])
+        if "max_expansions" in section:
+            overrides["max_expansions"] = int(section["max_expansions"])
+        if "intent_budgets" in section:
+            budgets = dict(DEFAULT_INTENT_BUDGETS)
+            for intent, vals in section["intent_budgets"].items():
+                budgets[intent] = (int(vals[0]), int(vals[1]), int(vals[2]))
+            overrides["intent_budgets"] = budgets
+        return replace(cfg, **overrides)
+    except (TypeError, ValueError, KeyError, AttributeError) as exc:
+        return replace(cfg, config_error=f"Invalid context-eng.toml values: {exc}")

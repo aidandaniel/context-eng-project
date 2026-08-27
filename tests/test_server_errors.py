@@ -55,9 +55,23 @@ def test_expand_context_engine_failure_returns_dict():
     assert result["error_type"] == "PermissionError"
 
 
-def test_context_prompt_permission_error_returns_string(monkeypatch):
-    monkeypatch.setattr("context_eng.server.get_engine", _raise_permission_error)
-    text = context_prompt("explain greet")
-    assert isinstance(text, str)
-    assert "denied" in text
-    assert "Traceback" not in text
+def test_prepare_context_empty_query_returns_structured_error(tmp_path):
+    result = prepare_context("   ", workspace_root=str(tmp_path))
+    assert isinstance(result, dict)
+    assert "error" in result
+    assert result["error_type"] == "ValueError"
+
+
+def test_write_tools_are_not_marked_read_only():
+    import asyncio
+
+    from context_eng.server import mcp
+
+    tools = asyncio.run(mcp.list_tools())
+    hints = {t.name: t.annotations.read_only_hint for t in tools}
+    assert hints["prepare_context"] is False
+    assert hints["get_context_bundle"] is False
+    assert hints["analyze_query"] is False
+    assert hints["expand_context"] is False
+    assert hints["estimate_tokens"] is True
+    assert hints["mcp_health"] is True
