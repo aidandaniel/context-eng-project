@@ -178,6 +178,8 @@ Budget resolution: explicit `max_tokens` (snapped to a bucket, 2k–15k) → SWE
 pytest -m "not benchmark"
 ```
 
+Pull requests are reviewed by **Grok bot** (`.github/workflows/grok-review.yml`) using xAI `grok-4.6`. Add a repository secret named `XAI_API_KEY` from [the xAI console](https://console.x.ai). Optional: repository variable `XAI_MODEL` to override the model. Label a PR `skip-grok-review` to opt out.
+
 ## Project layout
 
 ```

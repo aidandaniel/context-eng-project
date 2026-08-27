@@ -1,4 +1,4 @@
-"""FastMCP server exposing the Context Engineering tools.
+"""MCPServer exposing the Context Engineering tools.
 
 The MCP layer is intentionally thin: it validates inputs and delegates to
 ``ContextEngine``. Run with ``python -m context_eng.server`` (stdio transport).
@@ -16,7 +16,7 @@ import os
 import sys
 from typing import Optional
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from context_eng import __version__
 from context_eng.cache import TtlLruCache
@@ -26,7 +26,7 @@ from context_eng.formatting import format_context_message
 from context_eng.ml.model_paths import DEFAULT_MODEL_NAME
 from context_eng.workspace_resolve import resolve_workspace
 
-mcp = FastMCP("context-eng")
+mcp = MCPServer("context-eng")
 
 # Process-wide cache bounds (H1). Overridable via env for long-running hosts.
 _MAX_CACHED_ENGINES = max(1, int(os.environ.get("CONTEXT_ENG_MAX_ENGINES", "8")))

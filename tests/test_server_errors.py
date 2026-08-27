@@ -68,7 +68,7 @@ def test_write_tools_are_not_marked_read_only():
     from context_eng.server import mcp
 
     tools = asyncio.run(mcp.list_tools())
-    hints = {t.name: t.annotations.readOnlyHint for t in tools}
+    hints = {t.name: t.annotations.read_only_hint for t in tools}
     assert hints["prepare_context"] is False
     assert hints["get_context_bundle"] is False
     assert hints["analyze_query"] is False
