@@ -9,11 +9,12 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+from context_eng.cache import TtlLruCache
 from context_eng.config import Config
 from context_eng.workspace import iter_files, read_text
 
-# (workspace_posix, manifest_mtime_ns_or_-1) -> (file_count, loc_log)
-_STATS_CACHE: dict[tuple[str, int], tuple[int, float]] = {}
+# Bounded so long-lived MCP processes cannot grow this without limit.
+_STATS_CACHE: TtlLruCache[tuple[str, int], tuple[int, float]] = TtlLruCache(maxsize=32)
 
 
 def clear_repo_stats_cache() -> None:

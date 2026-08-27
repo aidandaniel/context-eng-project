@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from context_eng.index.manifest import contained_path
 from context_eng.ml.budget_model import BUDGET_BUCKETS
 from context_eng.retrieval.symbol_slice import find_symbol_span
 from context_eng.tokens.estimator import count_tokens
@@ -22,7 +23,9 @@ def estimate_must_include_tokens(
     symbols = symbols or []
     total = 0
     for rel in anchor_paths:
-        path = workspace / rel
+        path = contained_path(workspace, rel)
+        if path is None:
+            continue
         source = read_text(path)
         if not source:
             continue

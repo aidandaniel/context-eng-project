@@ -130,10 +130,13 @@ def test_bundle_symbol_slice_smaller_than_full_file(sample_repo):
 def test_expand_context_grows_bundle(sample_repo):
     cfg = Config(workspace_root=sample_repo)
     engine = ContextEngine(config=cfg)
-    bundle = engine.get_context_bundle("refreshToken logout session")
+    bundle = engine.get_context_bundle(
+        "refreshToken logout session", max_tokens=4000
+    )
     expanded = engine.expand_context(bundle.bundle_id)
     assert expanded.expansions == 1
     assert expanded.budget_limit > bundle.budget_limit
+    assert expanded.budget_limit <= 15000
 
 
 def test_bundle_infers_anchor_when_query_has_no_file(sample_repo):

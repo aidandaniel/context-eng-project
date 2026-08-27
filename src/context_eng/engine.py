@@ -6,6 +6,7 @@ it can be unit-tested without the MCP transport layer.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from context_eng.budget.policy import BudgetPolicy
@@ -15,7 +16,10 @@ from context_eng.intent import classifier
 from context_eng.intent.budgets import budget_for
 from context_eng.anchors.discovery import discover_anchor_paths, resolve_mentioned_files
 from context_eng.anchors.fit import ensure_budget_fits_anchors
+from context_eng.index.manifest import contained_path
+from context_eng.limits import MAX_BUDGET_TOKENS, validate_query
 from context_eng.ml.engine_budget import resolve_budget
+from context_eng.ml.budget_model import snap_to_bucket
 from context_eng.logging.store import EventLogger
 from context_eng.packing.adaptive import adaptive_max_optional_chunks
 from context_eng.models import (
@@ -31,6 +35,7 @@ from context_eng.retrieval.import_graph import local_imports
 from context_eng.retrieval.symbol_slice import find_symbol_span
 from context_eng.tokens import estimate
 from context_eng.workspace import iter_files, read_text, relpath
+from context_eng import __version__
 
 _HEAD_LINES = 40
 _IMPORT_HEAD_LINES = 18
@@ -74,6 +79,7 @@ class ContextEngine:
     # ------------------------------------------------------------------ #
 
     def analyze_query(self, query: str) -> QueryAnalysis:
+        query = validate_query(query, max_chars=self.config.max_query_chars)
         analysis = classifier.analyze(query, self.config)
         self.logger.log(
             {
@@ -113,6 +119,8 @@ class ContextEngine:
         max_tokens: int | None = None,
         intent: str | None = None,
     ) -> ContextBundle:
+        query = validate_query(query, max_chars=self.config.max_query_chars)
+        started = time.perf_counter()
         workspace = self.config.workspace_root
         analysis = classifier.analyze(query, self.config)
         if intent:
@@ -160,6 +168,7 @@ class ContextEngine:
             expansions=0,
             grep_hits=len(candidates),
             budget_source=budget.source,
+            duration_ms=round((time.perf_counter() - started) * 1000, 2),
         )
         return bundle
 
@@ -173,10 +182,18 @@ class ContextEngine:
         if state is None:
             raise KeyError(f"unknown bundle_id: {bundle_id}")
 
+        if state.expansions >= self.config.max_expansions:
+            raise ValueError(
+                f"expand_context limit reached ({self.config.max_expansions} expansions)"
+            )
+
         workspace = self.config.workspace_root
         state.expansions += 1
-        extra = extra_tokens or int(state.budget_limit * 0.5)
-        new_limit = state.budget_limit + extra
+        if extra_tokens is None:
+            extra = int(state.budget_limit * 0.5)
+        else:
+            extra = max(0, int(extra_tokens))
+        new_limit = min(MAX_BUDGET_TOKENS, snap_to_bucket(state.budget_limit + extra))
         state.budget_limit = new_limit
 
         # Relax: add a second import hop and (optionally) a full focused file.
@@ -243,9 +260,16 @@ class ContextEngine:
             rel for rel in anchor_paths if rel not in explicit_rels
         ]
 
-        explicit_files = [workspace / rel for rel in explicit_rels]
+        explicit_files = [
+            p
+            for rel in explicit_rels
+            if (p := contained_path(workspace, rel)) is not None
+        ]
         inferred_files = [
-            workspace / rel for rel in anchor_paths if rel not in explicit_rels
+            p
+            for rel in anchor_paths
+            if rel not in explicit_rels
+            and (p := contained_path(workspace, rel)) is not None
         ]
 
         # Tier 1+2: anchors and symbol slices.
@@ -284,6 +308,8 @@ class ContextEngine:
         if not source:
             return []
         rel = relpath(path, workspace)
+        if not rel:
+            return []
         lines = source.splitlines()
         out: list[CandidateChunk] = []
 
@@ -327,6 +353,8 @@ class ContextEngine:
         if not source:
             return []
         rel = relpath(path, workspace)
+        if not rel:
+            return []
         lines = source.splitlines()
         end = min(len(lines), _HEAD_LINES)
         return [
@@ -352,6 +380,8 @@ class ContextEngine:
             if not source:
                 continue
             rel = relpath(path, workspace)
+            if not rel:
+                continue
             lines = source.splitlines()
             for sym in symbols:
                 span = find_symbol_span(source, path.name, sym)
@@ -380,7 +410,9 @@ class ContextEngine:
         for anchor in anchor_files:
             for neighbor in local_imports(anchor, workspace):
                 rel = relpath(neighbor, workspace)
-                if rel in seen:
+                if not rel or rel in seen:
+                    continue
+                if contained_path(workspace, rel) is None:
                     continue
                 seen.add(rel)
                 source = read_text(neighbor)
@@ -412,7 +444,10 @@ class ContextEngine:
         for c in candidates:
             if c.path in mtimes:
                 continue
-            fpath = workspace / c.path
+            fpath = contained_path(workspace, c.path)
+            if fpath is None:
+                mtimes[c.path] = 0.0
+                continue
             try:
                 mtimes[c.path] = fpath.stat().st_mtime
             except OSError:
@@ -440,11 +475,15 @@ class ContextEngine:
             for rel in resolve_mentioned_files(
                 [focus], workspace, self.config.ignore_globs
             ):
-                path = workspace / rel
+                path = contained_path(workspace, rel)
+                if path is None:
+                    continue
                 source = read_text(path)
                 if not source:
                     continue
                 rel = relpath(path, workspace)
+                if not rel:
+                    continue
                 lines = source.splitlines()
                 out.append(
                     CandidateChunk(
@@ -459,12 +498,14 @@ class ContextEngine:
         # Second import hop from files already in the candidate set.
         current_paths = {c.path for c in state.candidates}
         for rel in list(current_paths):
-            fpath = workspace / rel
-            if not fpath.is_file():
+            fpath = contained_path(workspace, rel)
+            if fpath is None or not fpath.is_file():
                 continue
             for neighbor in local_imports(fpath, workspace):
                 nrel = relpath(neighbor, workspace)
-                if nrel in current_paths:
+                if not nrel or nrel in current_paths:
+                    continue
+                if contained_path(workspace, nrel) is None:
                     continue
                 source = read_text(neighbor)
                 if not source:
@@ -564,6 +605,7 @@ class ContextEngine:
         expansions: int,
         grep_hits: int,
         budget_source: str | None = None,
+        duration_ms: float | None = None,
     ) -> None:
         payload: dict[str, object] = {
             "event": "get_context_bundle",
@@ -586,4 +628,7 @@ class ContextEngine:
         }
         if budget_source is not None:
             payload["budget_source"] = budget_source
+        if duration_ms is not None:
+            payload["duration_ms"] = duration_ms
+        payload["version"] = __version__
         self.logger.log(payload)

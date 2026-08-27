@@ -11,8 +11,11 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-DEFAULT_MODEL_NAME = "budget_rf_v2.joblib"
+# Runtime default: Random Forest trained on SWE-bench Lite oracle/BM25 labels.
 SWEBENCH_MODEL_NAME = "budget_rf_swebench.joblib"
+# Earlier fixture-query RF; still packaged, not loaded unless requested by name.
+LEGACY_V2_MODEL_NAME = "budget_rf_v2.joblib"
+DEFAULT_MODEL_NAME = SWEBENCH_MODEL_NAME
 
 # Models ship beside this module: context_eng/ml/models/*.joblib
 _MODELS_DIR = Path(__file__).resolve().parent / "models"

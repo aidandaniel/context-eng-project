@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import textwrap
 from pathlib import Path
 from unittest import mock
@@ -83,3 +84,29 @@ def test_rg_failure_falls_back_and_marks_degraded(tmp_path: Path):
             hits = retriever.search("gamma_handler", tmp_path, limit=5)
     assert any(h.path == "gamma.py" for h in hits)
     assert retriever.last_degraded is True
+
+
+def test_chunks_from_hits_rejects_parent_escape(tmp_path: Path):
+    (tmp_path / "ok.py").write_text("needle_value = 1\n", encoding="utf-8")
+    outside = tmp_path.parent / "secret.py"
+    # Do not require outside to exist; containment must fail first.
+    patterns = [("needle_value", re.compile("needle_value"))]
+    chunks = gr._chunks_from_hits(
+        rel_path="../secret.py",
+        hit_lines=[1],
+        workspace=tmp_path,
+        patterns=patterns,
+        context=2,
+    )
+    assert chunks == []
+    assert outside.name not in {c.path for c in chunks}
+
+
+def test_parse_rg_json_drops_absolute_outside_path(tmp_path: Path):
+    workspace = tmp_path
+    payload = (
+        '{"type":"match","data":{"path":{"text":"/etc/passwd"},'
+        '"line_number":1}}\n'
+    )
+    hits = gr._parse_rg_json(payload, workspace)
+    assert hits == {}

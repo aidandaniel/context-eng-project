@@ -1,6 +1,10 @@
 # Context Engineering MCP
 
-A local [Model Context Protocol](https://modelcontextprotocol.io) server that returns **query-matched, token-budgeted context packs** instead of whole files.
+Open-source [Model Context Protocol](https://modelcontextprotocol.io) server that **cuts LLM token spend** by returning query-matched, token-budgeted context packs instead of whole files.
+
+A packaged Random Forest (`budget_rf_swebench.joblib`), trained on [SWE-bench Lite](https://www.swebench.com/) oracle/BM25 labels, picks the token ceiling for each query.
+
+**License:** MIT — clone it, run it locally, no cloud required.
 
 ## Pipeline
 
@@ -23,7 +27,7 @@ flowchart LR
       AF[auto-fit budget]
     end
     subgraph budget
-      RF[budget_rf_v2.joblib]
+      RF[budget_rf_swebench.joblib]
       EB[engine_budget.rf_budget]
     end
     subgraph pack
@@ -55,55 +59,85 @@ flowchart LR
 1. **Index** — cached `.context-eng/manifest.json` avoids full-tree scans each query.
 2. **Retrieve** — ripgrep when available (Python scan fallback); optional embeddings merge semantic hits.
 3. **Discover anchors** — infer must-include files from query + repo; auto-fit raises the budget bucket if anchors won't fit.
-4. **Budget** — RF model (`context_eng/ml/models/budget_rf_v2.joblib`) picks a token ceiling.
+4. **Budget** — SWE-bench Lite RF picks a token ceiling (explicit `max_tokens` is snapped to a bucket, max 15k).
 5. **Pack** — rank chunks, apply adaptive optional-chunk cap, greedy pack under ceiling.
 6. **Output** — `ContextBundle` via `prepare_context` / `/context`.
 
 ## Quick start
 
+Python 3.11+ (ripgrep recommended; `tiktoken` optional).
+
+**Linux / macOS**
+
+```bash
+git clone https://github.com/aidandaniel/context-eng-project.git
+cd context-eng-project
+chmod +x scripts/install.sh
+./scripts/install.sh
+```
+
+**Windows (PowerShell)**
+
 ```powershell
+git clone https://github.com/aidandaniel/context-eng-project.git
+cd context-eng-project
 .\scripts\install.ps1
 ```
 
-Restart Cursor, then in any project:
+Restart Cursor, then:
 
 ```
 /context how does auth middleware validate tokens?
 ```
 
-## Requirements
+The install scripts create `.venv`, `pip install -e ".[dev,tokens]"`, copy the `/context` command, and merge `context-eng` into `~/.cursor/mcp.json` without removing other servers.
 
-- Python 3.11+
-- **ripgrep** recommended (pure-Python grep fallback otherwise)
-- `tiktoken` optional for exact token counts (chars/4 heuristic otherwise)
+Or install the package from GitHub without a full clone:
 
-## Setup
+```bash
+pip install "git+https://github.com/aidandaniel/context-eng-project.git"
+```
 
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+Then register `python -m context_eng.server` in `~/.cursor/mcp.json` (see Manual setup).
+
+## Manual setup
+
+```bash
+python3 -m venv .venv
+# Windows: .venv\Scripts\Activate.ps1
+source .venv/bin/activate
+pip install -e ".[dev,tokens]"
 ```
 
 Optional extras:
 
-```powershell
-pip install -e ".[tokens]"      # accurate token counts
-pip install -e ".[embeddings]"    # semantic retriever (off by default)
+```bash
+pip install -e ".[tokens]"       # accurate token counts
+pip install -e ".[embeddings]"   # local semantic retriever (off by default)
 ```
 
-Add to `~/.cursor/mcp.json`:
+Add to `~/.cursor/mcp.json` (use your venv’s `python`):
 
 ```json
 {
   "mcpServers": {
     "context-eng": {
-      "command": "C:/path/to/context-eng-project/.venv/Scripts/python.exe",
+      "command": "/absolute/path/to/context-eng-project/.venv/bin/python",
       "args": ["-m", "context_eng.server"]
     }
   }
 }
 ```
+
+On Windows the command is `.venv\Scripts\python.exe`.
+
+By default the server may only index the process working directory. To allow additional roots (multi-project):
+
+```bash
+export CONTEXT_ENG_ALLOWED_ROOTS="/home/you/src:/home/you/work"
+```
+
+Windows: `;`-separated paths in `CONTEXT_ENG_ALLOWED_ROOTS`.
 
 ## Tools
 
@@ -111,8 +145,9 @@ Add to `~/.cursor/mcp.json`:
 |----------------|---------|
 | **`/context <query>`** | Analyze + bundle; inject formatted context into chat. |
 | **`prepare_context(query, ...)`** | Same as `/context` for agents. |
-| `expand_context(bundle_id, ...)` | Add more context when the initial bundle is insufficient. |
+| `expand_context(bundle_id, ...)` | Add more context when the initial bundle is insufficient (capped). |
 | `estimate_tokens(...)` | Token count for text or a built bundle. |
+| `mcp_health` | Version, default RF model, process liveness. |
 
 ## Configuration
 
@@ -126,18 +161,21 @@ max_grep_candidates = 50
 min_chunk_score = 0.15
 max_optional_chunks_upper = 4
 max_inferred_anchor_files = 3
+max_expansions = 3
 manifest_auto_build = true
 enable_embedding_retriever = false
 embedding_model_name = "all-MiniLM-L6-v2"
 ignore_globs = [".git", "node_modules", "dist", "__pycache__"]
 ```
 
-Budget resolution: explicit `max_tokens` on the tool call → RF model → `default_max_tokens` snapped to the nearest bucket.
+Invalid TOML is reported as `config_error` on tool responses (defaults still apply). Extra `ignore_globs` merge onto the built-in list (`.git`, `.venv`, secret-prone names are never dropped).
+
+Budget resolution: explicit `max_tokens` (snapped to a bucket, 2k–15k) → SWE-bench Lite RF → `default_max_tokens` snapped to the nearest bucket.
 
 ## Tests
 
-```powershell
-pytest
+```bash
+pytest -m "not benchmark"
 ```
 
 ## Project layout

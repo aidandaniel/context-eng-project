@@ -11,6 +11,7 @@ from context_eng.server import (
     expand_context,
     get_context_bundle,
     get_engine,
+    mcp_health,
     prepare_context,
 )
 from context_eng.workspace_resolve import resolve_workspace
@@ -112,3 +113,10 @@ def test_context_prompt_returns_formatted_context(tmp_path):
     assert "Context Engineering" in text
     assert "hello.py" in text
     assert "bundle id" in text.lower()
+
+
+def test_mcp_health_reports_swebench_model():
+    result = mcp_health()
+    assert result["ok"] is True
+    assert result["model"] == "budget_rf_swebench.joblib"
+    assert "version" in result
